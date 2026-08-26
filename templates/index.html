@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ply Orientation Generator</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; max-width: 680px; margin: 40px auto; color: #1b2321; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  p.sub { color: #5b6462; margin-top: 0; }
+  label { display: block; font-weight: 600; margin-top: 18px; margin-bottom: 4px; }
+  input[type=text], input[type=number] { width: 100%; padding: 8px; box-sizing: border-box; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+  input[type=number] { width: 140px; }
+  .hint { color: #5b6462; font-size: 12.5px; margin-top: 3px; }
+  button { margin-top: 22px; padding: 10px 22px; font-size: 14px; background: #c14a0c; color: white; border: none; border-radius: 5px; cursor: pointer; }
+  button:hover { background: #a53f0a; }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .box { margin-top: 26px; padding: 16px 18px; border-radius: 6px; font-size: 13.5px; }
+  .ok { background: #eaf5ea; border: 1px solid #9cc99c; }
+  .err { background: #fbe9e6; border: 1px solid #e3a397; }
+  .warn { background: #fff6e0; border: 1px solid #e3c397; }
+  .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  table { width: 100%; margin-top: 8px; border-collapse: collapse; }
+  td { padding: 3px 0; vertical-align: top; }
+  td:first-child { color: #5b6462; width: 150px; }
+  pre { background: #1c2624; color: #dce6e2; padding: 12px; border-radius: 5px; font-size: 11.5px; overflow-x: auto; margin-top: 8px; max-height: 260px; overflow-y: auto; }
+  h3 { font-size: 1rem; margin: 0 0 4px; }
+
+  .overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(255,255,255,0.88);
+    z-index: 1000;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .spinner {
+    width: 52px; height: 52px;
+    border: 5px solid #eee;
+    border-top-color: #c14a0c;
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation: none; }
+  }
+  .overlay-text { margin-top: 18px; font-weight: 600; }
+  .overlay pre { width: 560px; max-width: 85vw; margin-top: 16px; }
+  #stopBtn { background: #8a1f11; }
+  #stopBtn:hover { background: #6e1a0d; }
+</style>
+</head>
+<body>
+  <h1>Ply Orientation Generator</h1>
+  <p class="sub">Single-ply milestone: swaps the fiber orientation in a one-ply <code>.inp</code>, then runs CalculiX on it directly.</p>
+
+  <form id="runForm">
+    <label for="input_path">Input .inp file path</label>
+    <input type="text" id="input_path" name="input_path" placeholder="D:\path\to\your_single_ply.inp">
+    <div class="hint">Must already have exactly one active ply in the *Shell section, Composite card.</div>
+
+    <label for="output_folder">Output folder <span style="font-weight:400; color:#5b6462;">(all generated files -- .inp, .frd, .dat, .log, ... -- go here)</span></label>
+    <input type="text" id="output_folder" name="output_folder" placeholder="D:\Git_Composite_Automation\fem-automation\runs">
+    <div class="hint">Created automatically if it doesn't exist yet. Leave blank to use the same folder as the input file.</div>
+
+    <label for="angle">Ply angle (degrees)</label>
+    <input type="number" id="angle" name="angle" step="15" min="-90" max="90" value="0">
+    <div class="hint">0&deg; = aligned with global X. Step defaults to 15&deg;; type any value for finer resolution.</div>
+
+    <label for="ccx_exe">CalculiX executable</label>
+    <input type="text" id="ccx_exe" name="ccx_exe" value="{{ default_ccx_exe }}">
+
+    <button type="submit" id="runBtn">Generate .inp and run CalculiX</button>
+  </form>
+
+  <div id="genBox"></div>
+  <div id="resultBox"></div>
+
+  <div class="overlay" id="overlay">
+    <div class="spinner"></div>
+    <div class="overlay-text">Simulating&hellip;</div>
+    <pre id="liveLog"></pre>
+    <button id="stopBtn">Stop</button>
+  </div>
+
+<script>
+const form = document.getElementById("runForm");
+const overlay = document.getElementById("overlay");
+const liveLog = document.getElementById("liveLog");
+const stopBtn = document.getElementById("stopBtn");
+const genBox = document.getElementById("genBox");
+const resultBox = document.getElementById("resultBox");
+const inputs = form.querySelectorAll("input, button");
+
+let currentJobId = null;
+let pollTimer = null;
+
+function setFormDisabled(disabled) {
+  inputs.forEach(el => el.disabled = disabled);
+}
+
+function showOverlay(show) {
+  overlay.style.display = show ? "flex" : "none";
+}
+
+function escapeHtml(s) {
+  return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderGen(g) {
+  genBox.innerHTML = `
+    <div class="box ok">
+      <h3>.inp generated</h3>
+      <table>
+        <tr><td>Elset</td><td class="mono">${escapeHtml(g.elset)}</td></tr>
+        <tr><td>Material</td><td class="mono">${escapeHtml(g.material)}</td></tr>
+        <tr><td>Orientation name</td><td class="mono">${escapeHtml(g.orientation_name)}</td></tr>
+        <tr><td>Angle</td><td class="mono">${g.angle_deg}&deg;</td></tr>
+        <tr><td>New vector line</td><td class="mono">${escapeHtml(g.new_vector_line)}</td></tr>
+        <tr><td>Written to</td><td class="mono">${escapeHtml(g.output_path)}</td></tr>
+      </table>
+    </div>`;
+}
+
+function renderResult(r) {
+  let boxClass = "warn";
+  let heading = "CalculiX ran, but did not clearly converge -- check the output below";
+  if (r.stopped) {
+    boxClass = "warn";
+    heading = "Stopped by user";
+  } else if (r.has_error) {
+    boxClass = "err";
+    heading = "CalculiX reported an error";
+  } else if (r.converged && r.frd_exists) {
+    boxClass = "ok";
+    heading = "CalculiX finished, converged";
+  }
+  resultBox.innerHTML = `
+    <div class="box ${boxClass}">
+      <h3>${heading}</h3>
+      <table>
+        <tr><td>Exit code</td><td class="mono">${r.returncode}</td></tr>
+        <tr><td>.frd written</td><td class="mono">${r.frd_exists}</td></tr>
+        <tr><td>.frd path</td><td class="mono">${escapeHtml(r.frd_path)}</td></tr>
+      </table>
+      <pre>${escapeHtml(r.output_tail)}</pre>
+    </div>`;
+}
+
+function renderError(msg) {
+  resultBox.innerHTML = `<div class="box err"><strong>Error:</strong> ${escapeHtml(msg)}</div>`;
+}
+
+async function poll() {
+  const res = await fetch(`/status/${currentJobId}`);
+  const data = await res.json();
+  if (!data.ok) {
+    clearInterval(pollTimer);
+    showOverlay(false);
+    setFormDisabled(false);
+    renderError(data.error);
+    return;
+  }
+  liveLog.textContent = data.log_tail;
+  if (data.done) {
+    clearInterval(pollTimer);
+    showOverlay(false);
+    setFormDisabled(false);
+    renderResult(data.result);
+  }
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  genBox.innerHTML = "";
+  resultBox.innerHTML = "";
+  liveLog.textContent = "";
+  setFormDisabled(true);
+  showOverlay(true);
+
+  const payload = {
+    input_path: document.getElementById("input_path").value,
+    output_folder: document.getElementById("output_folder").value,
+    angle: document.getElementById("angle").value,
+    ccx_exe: document.getElementById("ccx_exe").value,
+  };
+
+  try {
+    const res = await fetch("/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      showOverlay(false);
+      setFormDisabled(false);
+      renderError(data.error);
+      return;
+    }
+    currentJobId = data.job_id;
+    renderGen(data.gen_result);
+    pollTimer = setInterval(poll, 1200);
+  } catch (err) {
+    showOverlay(false);
+    setFormDisabled(false);
+    renderError(String(err));
+  }
+});
+
+stopBtn.addEventListener("click", async () => {
+  if (!currentJobId) return;
+  stopBtn.disabled = true;
+  await fetch(`/stop/${currentJobId}`, { method: "POST" });
+  stopBtn.disabled = false;
+});
+</script>
+</body>
+</html>
