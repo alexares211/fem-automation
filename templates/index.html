@@ -4,12 +4,15 @@
 <meta charset="utf-8">
 <title>Ply Orientation Generator</title>
 <style>
-  body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; max-width: 680px; margin: 40px auto; color: #1b2321; }
+  body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; max-width: 760px; margin: 40px auto; color: #1b2321; }
   h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  h2 { font-size: 1.1rem; margin: 40px 0 4px; padding-top: 24px; border-top: 1px solid #ddd; }
   p.sub { color: #5b6462; margin-top: 0; }
   label { display: block; font-weight: 600; margin-top: 18px; margin-bottom: 4px; }
   input[type=text], input[type=number] { width: 100%; padding: 8px; box-sizing: border-box; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
   input[type=number] { width: 140px; }
+  .row { display: flex; gap: 16px; }
+  .row > div { flex: 1; }
   .hint { color: #5b6462; font-size: 12.5px; margin-top: 3px; }
   button { margin-top: 22px; padding: 10px 22px; font-size: 14px; background: #c14a0c; color: white; border: none; border-radius: 5px; cursor: pointer; }
   button:hover { background: #a53f0a; }
@@ -20,10 +23,22 @@
   .warn { background: #fff6e0; border: 1px solid #e3c397; }
   .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
   table { width: 100%; margin-top: 8px; border-collapse: collapse; }
-  td { padding: 3px 0; vertical-align: top; }
+  td, th { padding: 6px 4px; vertical-align: top; }
   td:first-child { color: #5b6462; width: 150px; }
   pre { background: #1c2624; color: #dce6e2; padding: 12px; border-radius: 5px; font-size: 11.5px; overflow-x: auto; margin-top: 8px; max-height: 260px; overflow-y: auto; }
   h3 { font-size: 1rem; margin: 0 0 4px; }
+
+  .resultsTable { border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
+  .resultsTable th {
+    text-align: left; background: #f3f1ee; cursor: pointer; user-select: none;
+    padding: 8px 10px; border-bottom: 1px solid #ddd; font-size: 12.5px;
+  }
+  .resultsTable th:hover { background: #ece8e3; }
+  .resultsTable td { padding: 7px 10px; border-bottom: 1px solid #eee; font-size: 13.5px; }
+  .resultsTable tr:last-child td { border-bottom: none; }
+  .sort-arrow { font-size: 10px; opacity: 0.6; margin-left: 4px; }
+  .row-error { color: #a53f0a; }
+  .progress-line { font-size: 13px; color: #5b6462; margin-top: 8px; }
 
   .overlay {
     display: none;
@@ -36,20 +51,19 @@
     justify-content: center;
   }
   .spinner {
-    width: 52px; height: 52px;
-    border: 5px solid #eee;
-    border-top-color: #c14a0c;
+    width: 56px; height: 56px;
     border-radius: 50%;
-    animation: spin 0.9s linear infinite;
+    background: conic-gradient(#c14a0c 0deg, #f2b48c 120deg, transparent 200deg);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 7px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 7px));
+    animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) {
-    .spinner { animation: none; }
-  }
   .overlay-text { margin-top: 18px; font-weight: 600; }
+  .overlay-elapsed { margin-top: 4px; font-size: 12.5px; color: #5b6462; font-variant-numeric: tabular-nums; }
   .overlay pre { width: 560px; max-width: 85vw; margin-top: 16px; }
-  #stopBtn { background: #8a1f11; }
-  #stopBtn:hover { background: #6e1a0d; }
+  #stopBtn, #sweepStopBtn { background: #8a1f11; }
+  #stopBtn:hover, #sweepStopBtn:hover { background: #6e1a0d; }
 </style>
 </head>
 <body>
@@ -78,35 +92,109 @@
   <div id="genBox"></div>
   <div id="resultBox"></div>
 
+  <h2>Angle sweep</h2>
+  <p class="sub">Solves every angle in the range, one after another, and records the reaction force at the support for each.</p>
+
+  <form id="sweepForm">
+    <label for="sweep_input_path">Input .inp file path</label>
+    <input type="text" id="sweep_input_path" placeholder="D:\path\to\your_single_ply.inp">
+
+    <label for="sweep_output_folder">Output folder</label>
+    <input type="text" id="sweep_output_folder" placeholder="D:\Git_Composite_Automation\fem-automation\runs\sweep1">
+
+    <div class="row">
+      <div>
+        <label for="angle_min">Start angle (&deg;)</label>
+        <input type="number" id="angle_min" value="-90" step="1">
+      </div>
+      <div>
+        <label for="angle_max">End angle (&deg;)</label>
+        <input type="number" id="angle_max" value="90" step="1">
+      </div>
+      <div>
+        <label for="angle_step">Step (&deg;)</label>
+        <input type="number" id="angle_step" value="15" step="1" min="0.001">
+      </div>
+    </div>
+    <div class="hint">Ply angle is periodic every 180&deg;, so -90..90 already covers every distinct orientation.</div>
+
+    <label for="sweep_ccx_exe">CalculiX executable</label>
+    <input type="text" id="sweep_ccx_exe" value="{{ default_ccx_exe }}">
+    <div class="hint">Reaction force is read automatically from whichever node set the .inp already has RF history output configured for (falls back to NS_Fixed if none exists) -- no need to type a node set name.</div>
+
+    <button type="submit" id="sweepBtn">Run sweep</button>
+  </form>
+
+  <div id="sweepProgress" class="progress-line"></div>
+  <div id="sweepTableBox"></div>
+
   <div class="overlay" id="overlay">
     <div class="spinner"></div>
-    <div class="overlay-text">Simulating&hellip;</div>
+    <div class="overlay-text" id="overlayText">Simulating&hellip;</div>
+    <div class="overlay-elapsed" id="overlayElapsed">0s elapsed</div>
     <pre id="liveLog"></pre>
-    <button id="stopBtn">Stop</button>
+    <button id="stopBtnInner">Stop</button>
   </div>
 
 <script>
-const form = document.getElementById("runForm");
+// ---------- shared helpers ----------
+
+function escapeHtml(s) {
+  return (s === null || s === undefined ? "" : String(s))
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function fmtNum(v, digits) {
+  if (v === null || v === undefined) return "--";
+  return Number(v).toFixed(digits === undefined ? 3 : digits);
+}
+
 const overlay = document.getElementById("overlay");
+const overlayText = document.getElementById("overlayText");
+const overlayElapsed = document.getElementById("overlayElapsed");
 const liveLog = document.getElementById("liveLog");
-const stopBtn = document.getElementById("stopBtn");
+const stopBtnInner = document.getElementById("stopBtnInner");
+
+let activeStopUrl = null;
+let overlayStartTime = null;
+let overlayTimer = null;
+
+function showOverlay(show, text) {
+  overlay.style.display = show ? "flex" : "none";
+  if (text) overlayText.textContent = text;
+
+  if (show && overlayTimer === null) {
+    overlayStartTime = Date.now();
+    overlayElapsed.textContent = "0s elapsed";
+    overlayTimer = setInterval(() => {
+      const secs = Math.floor((Date.now() - overlayStartTime) / 1000);
+      overlayElapsed.textContent = secs + "s elapsed";
+    }, 1000);
+  } else if (!show && overlayTimer !== null) {
+    clearInterval(overlayTimer);
+    overlayTimer = null;
+  }
+}
+
+stopBtnInner.addEventListener("click", async () => {
+  if (!activeStopUrl) return;
+  stopBtnInner.disabled = true;
+  await fetch(activeStopUrl, { method: "POST" });
+  stopBtnInner.disabled = false;
+});
+
+// ---------- single run ----------
+
+const form = document.getElementById("runForm");
 const genBox = document.getElementById("genBox");
 const resultBox = document.getElementById("resultBox");
-const inputs = form.querySelectorAll("input, button");
+const singleInputs = form.querySelectorAll("input, button");
 
 let currentJobId = null;
 let pollTimer = null;
 
-function setFormDisabled(disabled) {
-  inputs.forEach(el => el.disabled = disabled);
-}
-
-function showOverlay(show) {
-  overlay.style.display = show ? "flex" : "none";
-}
-
-function escapeHtml(s) {
-  return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function setDisabled(els, disabled) {
+  els.forEach(el => el.disabled = disabled);
 }
 
 function renderGen(g) {
@@ -149,25 +237,25 @@ function renderResult(r) {
     </div>`;
 }
 
-function renderError(msg) {
-  resultBox.innerHTML = `<div class="box err"><strong>Error:</strong> ${escapeHtml(msg)}</div>`;
+function renderError(box, msg) {
+  box.innerHTML = `<div class="box err"><strong>Error:</strong> ${escapeHtml(msg)}</div>`;
 }
 
-async function poll() {
+async function pollSingle() {
   const res = await fetch(`/status/${currentJobId}`);
   const data = await res.json();
   if (!data.ok) {
     clearInterval(pollTimer);
     showOverlay(false);
-    setFormDisabled(false);
-    renderError(data.error);
+    setDisabled(singleInputs, false);
+    renderError(resultBox, data.error);
     return;
   }
   liveLog.textContent = data.log_tail;
   if (data.done) {
     clearInterval(pollTimer);
     showOverlay(false);
-    setFormDisabled(false);
+    setDisabled(singleInputs, false);
     renderResult(data.result);
   }
 }
@@ -177,8 +265,8 @@ form.addEventListener("submit", async (e) => {
   genBox.innerHTML = "";
   resultBox.innerHTML = "";
   liveLog.textContent = "";
-  setFormDisabled(true);
-  showOverlay(true);
+  setDisabled(singleInputs, true);
+  showOverlay(true, "Simulating\u2026");
 
   const payload = {
     input_path: document.getElementById("input_path").value,
@@ -196,25 +284,162 @@ form.addEventListener("submit", async (e) => {
     const data = await res.json();
     if (!data.ok) {
       showOverlay(false);
-      setFormDisabled(false);
-      renderError(data.error);
+      setDisabled(singleInputs, false);
+      renderError(resultBox, data.error);
       return;
     }
     currentJobId = data.job_id;
+    activeStopUrl = `/stop/${currentJobId}`;
     renderGen(data.gen_result);
-    pollTimer = setInterval(poll, 1200);
+    pollTimer = setInterval(pollSingle, 1200);
   } catch (err) {
     showOverlay(false);
-    setFormDisabled(false);
-    renderError(String(err));
+    setDisabled(singleInputs, false);
+    renderError(resultBox, String(err));
   }
 });
 
-stopBtn.addEventListener("click", async () => {
-  if (!currentJobId) return;
-  stopBtn.disabled = true;
-  await fetch(`/stop/${currentJobId}`, { method: "POST" });
-  stopBtn.disabled = false;
+// ---------- angle sweep ----------
+
+const sweepForm = document.getElementById("sweepForm");
+const sweepInputs = sweepForm.querySelectorAll("input, button");
+const sweepProgress = document.getElementById("sweepProgress");
+const sweepTableBox = document.getElementById("sweepTableBox");
+
+let sweepJobId = null;
+let sweepPollTimer = null;
+let sweepResults = [];
+let sweepSort = { key: "angle", dir: "asc" };
+
+function sortResults(results, key, dir) {
+  const copy = results.slice();
+  copy.sort((a, b) => {
+    let av = a[key], bv = b[key];
+    if (av === null || av === undefined) av = dir === "asc" ? Infinity : -Infinity;
+    if (bv === null || bv === undefined) bv = dir === "asc" ? Infinity : -Infinity;
+    if (av < bv) return dir === "asc" ? -1 : 1;
+    if (av > bv) return dir === "asc" ? 1 : -1;
+    return 0;
+  });
+  return copy;
+}
+
+function renderSweepTable() {
+  const sorted = sortResults(sweepResults, sweepSort.key, sweepSort.dir);
+  const arrow = (key) => sweepSort.key === key ? (sweepSort.dir === "asc" ? "\u25b2" : "\u25bc") : "";
+
+  let rows = sorted.map(r => {
+    if (r.error) {
+      return `<tr class="row-error">
+        <td>${fmtNum(r.angle, 2)}&deg;</td>
+        <td colspan="2">${escapeHtml(r.error)}</td>
+      </tr>`;
+    }
+    return `<tr>
+      <td>${fmtNum(r.angle, 2)}&deg;</td>
+      <td>${r.node_id}</td>
+      <td>${fmtNum(r.rf, 4)}</td>
+    </tr>`;
+  }).join("");
+
+  sweepTableBox.innerHTML = `
+    <table class="resultsTable">
+      <thead>
+        <tr>
+          <th data-key="angle">Orientation (&deg;) <span class="sort-arrow">${arrow("angle")}</span></th>
+          <th data-key="node_id">Node ID <span class="sort-arrow">${arrow("node_id")}</span></th>
+          <th data-key="rf">RF (N) <span class="sort-arrow">${arrow("rf")}</span></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  sweepTableBox.querySelectorAll("th[data-key]").forEach(th => {
+    th.addEventListener("click", () => {
+      const key = th.getAttribute("data-key");
+      if (sweepSort.key === key) {
+        sweepSort.dir = sweepSort.dir === "asc" ? "desc" : "asc";
+      } else {
+        sweepSort.key = key;
+        sweepSort.dir = "asc";
+      }
+      renderSweepTable();
+    });
+  });
+}
+
+async function pollSweep() {
+  const res = await fetch(`/sweep_status/${sweepJobId}`);
+  const data = await res.json();
+  if (!data.ok) {
+    clearInterval(sweepPollTimer);
+    showOverlay(false);
+    setDisabled(sweepInputs, false);
+    sweepProgress.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`;
+    return;
+  }
+
+  sweepResults = data.results;
+  renderSweepTable();
+
+  const anglesDone = new Set(data.results.map(r => r.angle)).size;
+  if (!data.done) {
+    const angleLabel = data.current_angle === null ? "" : ` (${fmtNum(data.current_angle, 2)}\u00b0)`;
+    const label = `Running angle ${data.current_index + 1} of ${data.total}${angleLabel}\u2026`;
+    sweepProgress.textContent = `${anglesDone} / ${data.total} angles done`;
+    showOverlay(true, label);
+    liveLog.textContent = data.log_tail;
+  } else {
+    clearInterval(sweepPollTimer);
+    showOverlay(false);
+    setDisabled(sweepInputs, false);
+    if (data.fatal_error) {
+      sweepProgress.innerHTML = `<span class="row-error">Sweep aborted: ${escapeHtml(data.fatal_error)}</span>`;
+    } else {
+      sweepProgress.textContent = `Done -- ${anglesDone} / ${data.total} angles completed.`;
+    }
+  }
+}
+
+sweepForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  sweepResults = [];
+  sweepTableBox.innerHTML = "";
+  sweepProgress.textContent = "";
+  liveLog.textContent = "";
+  setDisabled(sweepInputs, true);
+  showOverlay(true, "Starting sweep\u2026");
+
+  const payload = {
+    input_path: document.getElementById("sweep_input_path").value,
+    output_folder: document.getElementById("sweep_output_folder").value,
+    angle_min: document.getElementById("angle_min").value,
+    angle_max: document.getElementById("angle_max").value,
+    angle_step: document.getElementById("angle_step").value,
+    ccx_exe: document.getElementById("sweep_ccx_exe").value,
+  };
+
+  try {
+    const res = await fetch("/sweep_start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      showOverlay(false);
+      setDisabled(sweepInputs, false);
+      sweepProgress.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`;
+      return;
+    }
+    sweepJobId = data.job_id;
+    activeStopUrl = `/stop/${sweepJobId}`;
+    sweepPollTimer = setInterval(pollSweep, 1200);
+  } catch (err) {
+    showOverlay(false);
+    setDisabled(sweepInputs, false);
+    sweepProgress.innerHTML = `<span class="row-error">${escapeHtml(String(err))}</span>`;
+  }
 });
 </script>
 </body>

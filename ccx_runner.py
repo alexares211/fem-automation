@@ -1,15 +1,11 @@
-
-# Run CalculiX on a generated .inp in the background and report progress.
+# Run CalculiX on a generated .inp and report progress.
 #
 # ccx always writes its output files (.frd, .dat, .log, .sta, .cvg, ...) into
 # the same folder as the .inp it is given -- so pointing this at a file in
 # your chosen output folder keeps everything together there.
-#
-# start_ccx launches the process without blocking (Popen), redirecting its
-# output to a log file, so a web page can poll progress and offer a working
-# Stop button (terminates the real OS process, not just the browser request).
 
 import os
+import time
 import subprocess
 
 
@@ -43,6 +39,39 @@ def start_ccx(inp_path, ccx_exe):
         "frd_path": frd_path,
         "jobname": jobname,
     }
+
+
+def run_ccx_blocking(inp_path, ccx_exe, cancel_event=None, poll_interval=0.3):
+    """Run ccx and wait for it to finish, checking cancel_event periodically.
+
+    Used by the angle sweep, which runs many solves back to back in a
+    background thread -- cancel_event lets the user's Stop button kill the
+    currently running solve (and skip the rest of the sweep) without having
+    to wait for it to finish on its own.
+    """
+    state = start_ccx(inp_path, ccx_exe)
+    proc = state["proc"]
+
+    stopped = False
+    while True:
+        returncode = proc.poll()
+        if returncode is not None:
+            break
+        if cancel_event is not None and cancel_event.is_set():
+            proc.terminate()
+            proc.wait()
+            stopped = True
+            break
+        time.sleep(poll_interval)
+
+    if not state["log_file"].closed:
+        state["log_file"].close()
+
+    result = evaluate_result(state["log_path"], state["frd_path"], proc.returncode)
+    result["stopped"] = stopped
+    result["log_path"] = state["log_path"]
+    result["jobname"] = state["jobname"]
+    return result
 
 
 def read_log_tail(log_path, n=40):
