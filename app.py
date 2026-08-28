@@ -2,14 +2,16 @@ import os
 import json
 import math
 import uuid
+import itertools
 import threading
 from flask import Flask, render_template, request, jsonify
 
 from ply_orientation import generate_inp, angle_range, PlyEditError
-from ccx_runner import start_ccx, run_ccx_blocking, read_log_tail, evaluate_result, CCXRunError
+from ccx_runner import run_ccx_blocking
 from dat_parser import read_reaction_force, DatParseError
 
 DEFAULT_CCX_EXE = r"D:\PrePoMax v2.5.0\Solver\ccx_dynamic.exe"
+MAX_COMBOS = 4028
 
 app = Flask(__name__)
 
@@ -22,99 +24,19 @@ def index():
     return render_template("index.html", default_ccx_exe=DEFAULT_CCX_EXE)
 
 
-# ---------- single-run ----------
-
-@app.route("/start", methods=["POST"])
-def start():
-    data = request.get_json()
-    input_path = (data.get("input_path") or "").strip()
-    output_folder = (data.get("output_folder") or "").strip()
-    angle_raw = (data.get("angle") or "").strip()
-    ccx_exe = (data.get("ccx_exe") or "").strip() or DEFAULT_CCX_EXE
-
-    try:
-        angle = float(angle_raw)
-        if not input_path:
-            raise PlyEditError("Please provide the path to the input .inp file.")
-        if not os.path.isfile(input_path):
-            raise PlyEditError("No file found at: " + input_path)
-
-        base_name = os.path.splitext(os.path.basename(input_path))[0]
-        suffix = angle_raw.replace("-", "m").replace(".", "p")
-        file_name = base_name + "_" + suffix + "deg.inp"
-
-        if output_folder:
-            os.makedirs(output_folder, exist_ok=True)
-            output_path = os.path.join(output_folder, file_name)
-        else:
-            output_path = os.path.join(os.path.dirname(input_path), file_name)
-
-        gen_result = generate_inp(input_path, output_path, angle)
-        ccx_state = start_ccx(output_path, ccx_exe)
-
-        job_id = uuid.uuid4().hex
-        with JOBS_LOCK:
-            JOBS[job_id] = {
-                "type": "single",
-                "proc": ccx_state["proc"],
-                "log_file": ccx_state["log_file"],
-                "log_path": ccx_state["log_path"],
-                "frd_path": ccx_state["frd_path"],
-                "jobname": ccx_state["jobname"],
-                "stopped": False,
-            }
-
-        return jsonify({"ok": True, "job_id": job_id, "gen_result": gen_result})
-
-    except PlyEditError as e:
-        return jsonify({"ok": False, "error": str(e)})
-    except CCXRunError as e:
-        return jsonify({"ok": False, "error": str(e)})
-    except ValueError:
-        return jsonify({"ok": False, "error": "Angle must be a number."})
-    except OSError as e:
-        return jsonify({"ok": False, "error": "File error: " + str(e)})
-
-
-@app.route("/status/<job_id>")
-def status(job_id):
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
-    if job is None or job.get("type") != "single":
-        return jsonify({"ok": False, "error": "Unknown job id."})
-
-    proc = job["proc"]
-    returncode = proc.poll()
-    log_tail = read_log_tail(job["log_path"])
-
-    if returncode is None:
-        return jsonify({"ok": True, "done": False, "log_tail": log_tail})
-
-    if not job["log_file"].closed:
-        job["log_file"].close()
-
-    result = evaluate_result(job["log_path"], job["frd_path"], returncode)
-    result["stopped"] = job["stopped"]
-    return jsonify({"ok": True, "done": True, "result": result, "log_tail": log_tail})
-
-
 @app.route("/stop/<job_id>", methods=["POST"])
 def stop(job_id):
     with JOBS_LOCK:
         job = JOBS.get(job_id)
     if job is None:
         return jsonify({"ok": False, "error": "Unknown job id."})
-    job["stopped"] = True
-    if job.get("type") == "single":
-        job["proc"].terminate()
-    elif job.get("type") == "sweep":
-        job["cancel_event"].set()
+    job["cancel_event"].set()
     return jsonify({"ok": True})
 
 
 # ---------- angle sweep ----------
 
-def run_sweep(job_id, input_path, output_folder, angles, ccx_exe):
+def run_sweep(job_id, input_path, output_folder, combos, ccx_exe):
     with JOBS_LOCK:
         job = JOBS[job_id]
 
@@ -122,23 +44,36 @@ def run_sweep(job_id, input_path, output_folder, angles, ccx_exe):
         os.makedirs(output_folder, exist_ok=True)
         base_name = os.path.splitext(os.path.basename(input_path))[0]
 
-        for i, angle in enumerate(angles):
+        for i, combo in enumerate(combos):
             if job["cancel_event"].is_set():
                 break
 
             job["current_index"] = i
-            job["current_angle"] = angle
+            job["current_combo"] = list(combo)
+            combo_num = i + 1
 
-            suffix = str(angle).replace("-", "m").replace(".", "p")
+            suffix = "_".join(
+                str(a).replace("-", "m").replace(".", "p") for a in combo
+            )
             file_name = base_name + "_" + suffix + "deg.inp"
             output_path = os.path.join(output_folder, file_name)
 
-            try:
-                gen_result = generate_inp(input_path, output_path, angle)
-            except PlyEditError as e:
+            def add_row(ply, angle, node_id, rf, error):
                 job["results"].append(
-                    {"angle": angle, "node_id": None, "rf": None, "error": str(e)}
+                    {
+                        "combo": combo_num,
+                        "ply": ply,
+                        "angle": angle,
+                        "node_id": node_id,
+                        "rf": rf,
+                        "error": error,
+                    }
                 )
+
+            try:
+                gen_result = generate_inp(input_path, output_path, list(combo))
+            except PlyEditError as e:
+                add_row(None, None, None, None, str(e))
                 continue
 
             rf_nset = gen_result["rf_nset"]
@@ -146,39 +81,22 @@ def run_sweep(job_id, input_path, output_folder, angles, ccx_exe):
             job["log_tail"] = run_result["output_tail"]
 
             if run_result["stopped"]:
-                job["results"].append(
-                    {"angle": angle, "node_id": None, "rf": None, "error": "Stopped by user"}
-                )
+                add_row(None, None, None, None, "Stopped by user")
                 break
 
             if run_result["has_error"] or not run_result["converged"]:
-                job["results"].append(
-                    {
-                        "angle": angle,
-                        "node_id": None,
-                        "rf": None,
-                        "error": "CalculiX did not converge cleanly",
-                    }
-                )
+                add_row(None, None, None, None, "CalculiX did not converge cleanly")
                 continue
 
             dat_path = os.path.splitext(output_path)[0] + ".dat"
             try:
                 rf = read_reaction_force(dat_path, rf_nset)
-                for node_id, (fx, fy, fz) in sorted(rf["per_node"].items()):
-                    magnitude = math.sqrt(fx ** 2 + fy ** 2 + fz ** 2)
-                    job["results"].append(
-                        {"angle": angle, "node_id": node_id, "rf": magnitude, "error": None}
-                    )
+                for ply_idx, ply_angle in enumerate(combo, start=1):
+                    for node_id, (fx, fy, fz) in sorted(rf["per_node"].items()):
+                        magnitude = math.sqrt(fx ** 2 + fy ** 2 + fz ** 2)
+                        add_row(ply_idx, ply_angle, node_id, magnitude, None)
             except DatParseError as e:
-                job["results"].append(
-                    {
-                        "angle": angle,
-                        "node_id": None,
-                        "rf": None,
-                        "error": "Could not read reaction force: " + str(e),
-                    }
-                )
+                add_row(None, None, None, None, "Could not read reaction force: " + str(e))
 
         try:
             summary_path = os.path.join(output_folder, "sweep_results.json")
@@ -207,6 +125,13 @@ def sweep_start():
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "Angle min/max/step must be numbers."})
 
+    try:
+        num_plies = int(data.get("num_plies") or 1)
+        if num_plies < 1:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Number of plies must be a whole number of at least 1."})
+
     if not input_path or not os.path.isfile(input_path):
         return jsonify({"ok": False, "error": "No file found at: " + input_path})
     if not output_folder:
@@ -217,13 +142,27 @@ def sweep_start():
     except PlyEditError as e:
         return jsonify({"ok": False, "error": str(e)})
 
+    combo_count = len(angles) ** num_plies
+    if combo_count > MAX_COMBOS:
+        return jsonify(
+            {
+                "ok": False,
+                "error": (
+                    f"{combo_count} combinations would be generated "
+                    f"({len(angles)} angles ^ {num_plies} plies), which exceeds the "
+                    f"{MAX_COMBOS}-combination limit. Reduce the angle range/step or ply count."
+                ),
+            }
+        )
+
+    combos = list(itertools.product(angles, repeat=num_plies))
+
     job_id = uuid.uuid4().hex
     job = {
-        "type": "sweep",
         "results": [],
-        "total": len(angles),
+        "total": len(combos),
         "current_index": -1,
-        "current_angle": None,
+        "current_combo": None,
         "done": False,
         "cancel_event": threading.Event(),
         "log_tail": "",
@@ -234,19 +173,19 @@ def sweep_start():
 
     thread = threading.Thread(
         target=run_sweep,
-        args=(job_id, input_path, output_folder, angles, ccx_exe),
+        args=(job_id, input_path, output_folder, combos, ccx_exe),
         daemon=True,
     )
     thread.start()
 
-    return jsonify({"ok": True, "job_id": job_id, "total": len(angles)})
+    return jsonify({"ok": True, "job_id": job_id, "total": len(combos)})
 
 
 @app.route("/sweep_status/<job_id>")
 def sweep_status(job_id):
     with JOBS_LOCK:
         job = JOBS.get(job_id)
-    if job is None or job.get("type") != "sweep":
+    if job is None:
         return jsonify({"ok": False, "error": "Unknown sweep job id."})
     return jsonify(
         {
@@ -254,7 +193,7 @@ def sweep_status(job_id):
             "done": job["done"],
             "total": job["total"],
             "current_index": job["current_index"],
-            "current_angle": job["current_angle"],
+            "current_combo": job["current_combo"],
             "results": job["results"],
             "log_tail": job["log_tail"],
             "fatal_error": job["error"],

@@ -1,369 +1,227 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Ply Orientation Generator</title>
-<style>
-  body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; max-width: 760px; margin: 40px auto; color: #1b2321; }
-  h1 { font-size: 1.4rem; margin-bottom: 4px; }
-  h2 { font-size: 1.1rem; margin: 40px 0 4px; padding-top: 24px; border-top: 1px solid #ddd; }
-  p.sub { color: #5b6462; margin-top: 0; }
-  label { display: block; font-weight: 600; margin-top: 18px; margin-bottom: 4px; }
-  input[type=text], input[type=number] { width: 100%; padding: 8px; box-sizing: border-box; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
-  input[type=number] { width: 140px; }
-  .row { display: flex; gap: 16px; }
-  .row > div { flex: 1; }
-  .hint { color: #5b6462; font-size: 12.5px; margin-top: 3px; }
-  button { margin-top: 22px; padding: 10px 22px; font-size: 14px; background: #c14a0c; color: white; border: none; border-radius: 5px; cursor: pointer; }
-  button:hover { background: #a53f0a; }
-  button:disabled { opacity: 0.6; cursor: not-allowed; }
-  .box { margin-top: 26px; padding: 16px 18px; border-radius: 6px; font-size: 13.5px; }
-  .ok { background: #eaf5ea; border: 1px solid #9cc99c; }
-  .err { background: #fbe9e6; border: 1px solid #e3a397; }
-  .warn { background: #fff6e0; border: 1px solid #e3c397; }
-  .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
-  table { width: 100%; margin-top: 8px; border-collapse: collapse; }
-  td, th { padding: 6px 4px; vertical-align: top; }
-  td:first-child { color: #5b6462; width: 150px; }
-  pre { background: #1c2624; color: #dce6e2; padding: 12px; border-radius: 5px; font-size: 11.5px; overflow-x: auto; margin-top: 8px; max-height: 260px; overflow-y: auto; }
-  h3 { font-size: 1rem; margin: 0 0 4px; }
+ <!doctype html>
+  <html lang="en">
+  <head>
+  <meta charset="utf-8">
+  <title>Ply Orientation Generator</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; max-width: 800px; margin: 40px auto; color: #1b2321; }
+    h1 { font-size: 1.4rem; margin-bottom: 4px; }
+    p.sub { color: #5b6462; margin-top: 0; }
+    label { display: block; font-weight: 600; margin-top: 18px; margin-bottom: 4px; }
+    input[type=text], input[type=number] { width: 100%; padding: 8px; box-sizing: border-box; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+    input[type=number] { width: 140px; }
+    .row { display: flex; gap: 16px; }
+    .row > div { flex: 1; }
+    .hint { color: #5b6462; font-size: 12.5px; margin-top: 3px; }
+    button { margin-top: 22px; padding: 10px 22px; font-size: 14px; background: #c14a0c; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    button:hover { background: #a53f0a; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .box { margin-top: 26px; padding: 16px 18px; border-radius: 6px; font-size: 13.5px; }
+    .ok { background: #eaf5ea; border: 1px solid #9cc99c; }
+    .err { background: #fbe9e6; border: 1px solid #e3a397; }
+    .warn { background: #fff6e0; border: 1px solid #e3c397; }
+    .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+    table { width: 100%; margin-top: 8px; border-collapse: collapse; }
+    td, th { padding: 6px 4px; vertical-align: top; }
+    pre { background: #1c2624; color: #dce6e2; padding: 12px; border-radius: 5px; font-size: 11.5px; overflow-x: auto; margin-top: 8px; max-height: 260px; overflow-y: auto; }
+    h3 { font-size: 1rem; margin: 0 0 4px; }
+    .resultsTable { border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
+    .resultsTable th { text-align: left; background: #f3f1ee; cursor: pointer; user-select: none; padding: 8px 10px; border-bottom: 1px solid #ddd; font-size: 12.5px; white-space: nowrap; }
+    .resultsTable th:hover { background: #ece8e3; }
+    .resultsTable td { padding: 7px 10px; border-bottom: 1px solid #eee; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+    .resultsTable tr:last-child td { border-bottom: none; }
+    .sort-arrow { font-size: 10px; opacity: 0.6; margin-left: 4px; }
+    .row-error { color: #a53f0a; }
+    .progress-line { font-size: 13px; color: #5b6462; margin-top: 8px; }
+    .table-wrap { overflow-x: auto; }
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(255,255,255,0.88); z-index: 1000; flex-direction: column; align-items: center; justify-content: center; }
+    .spinner { width: 56px; height: 56px; border-radius: 50%; background: conic-gradient(#c14a0c 0deg, #f2b48c 120deg, transparent 200deg); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 7px)); mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 7px)); animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .overlay-text { margin-top: 18px; font-weight: 600; }
+    .overlay-elapsed { margin-top: 4px; font-size: 12.5px; color: #5b6462; font-variant-numeric: tabular-nums; }
+    .overlay pre { width: 560px; max-width: 85vw; margin-top: 16px; }
+    #stopBtnInner { background: #8a1f11; }
+    #stopBtnInner:hover { background: #6e1a0d; }
+  </style>
+  </head>
+  <body>
+    <h1>Angle Sweep</h1>
+    <p class="sub">Tries every combination of per-ply angles from the range, solves each layup, and records the reaction force at the support.</p>
 
-  .resultsTable { border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
-  .resultsTable th {
-    text-align: left; background: #f3f1ee; cursor: pointer; user-select: none;
-    padding: 8px 10px; border-bottom: 1px solid #ddd; font-size: 12.5px;
-  }
-  .resultsTable th:hover { background: #ece8e3; }
-  .resultsTable td { padding: 7px 10px; border-bottom: 1px solid #eee; font-size: 13.5px; }
-  .resultsTable tr:last-child td { border-bottom: none; }
-  .sort-arrow { font-size: 10px; opacity: 0.6; margin-left: 4px; }
-  .row-error { color: #a53f0a; }
-  .progress-line { font-size: 13px; color: #5b6462; margin-top: 8px; }
+    <form id="sweepForm">
+      <label for="sweep_input_path">Input .inp file path</label>
+      <input type="text" id="sweep_input_path" placeholder="D:\path\to\your.inp">
+      <div class="hint">Must have a *Shell section, Composite card -- any number of plies.</div>
 
-  .overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(255,255,255,0.88);
-    z-index: 1000;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-  }
-  .spinner {
-    width: 56px; height: 56px;
-    border-radius: 50%;
-    background: conic-gradient(#c14a0c 0deg, #f2b48c 120deg, transparent 200deg);
-    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 7px));
-    mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 7px));
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .overlay-text { margin-top: 18px; font-weight: 600; }
-  .overlay-elapsed { margin-top: 4px; font-size: 12.5px; color: #5b6462; font-variant-numeric: tabular-nums; }
-  .overlay pre { width: 560px; max-width: 85vw; margin-top: 16px; }
-  #stopBtn, #sweepStopBtn { background: #8a1f11; }
-  #stopBtn:hover, #sweepStopBtn:hover { background: #6e1a0d; }
-</style>
-</head>
-<body>
-  <h1>Ply Orientation Generator</h1>
-  <p class="sub">Single-ply milestone: swaps the fiber orientation in a one-ply <code>.inp</code>, then runs CalculiX on it directly.</p>
+      <label for="sweep_output_folder">Output folder</label>
+      <input type="text" id="sweep_output_folder" placeholder="D:\...\runs\sweep1">
+      <div class="hint">Created automatically if it doesn't exist yet.</div>
 
-  <form id="runForm">
-    <label for="input_path">Input .inp file path</label>
-    <input type="text" id="input_path" name="input_path" placeholder="D:\path\to\your_single_ply.inp">
-    <div class="hint">Must already have exactly one active ply in the *Shell section, Composite card.</div>
-
-    <label for="output_folder">Output folder <span style="font-weight:400; color:#5b6462;">(all generated files -- .inp, .frd, .dat, .log, ... -- go here)</span></label>
-    <input type="text" id="output_folder" name="output_folder" placeholder="D:\Git_Composite_Automation\fem-automation\runs">
-    <div class="hint">Created automatically if it doesn't exist yet. Leave blank to use the same folder as the input file.</div>
-
-    <label for="angle">Ply angle (degrees)</label>
-    <input type="number" id="angle" name="angle" step="15" min="-90" max="90" value="0">
-    <div class="hint">0&deg; = aligned with global X. Step defaults to 15&deg;; type any value for finer resolution.</div>
-
-    <label for="ccx_exe">CalculiX executable</label>
-    <input type="text" id="ccx_exe" name="ccx_exe" value="{{ default_ccx_exe }}">
-
-    <button type="submit" id="runBtn">Generate .inp and run CalculiX</button>
-  </form>
-
-  <div id="genBox"></div>
-  <div id="resultBox"></div>
-
-  <h2>Angle sweep</h2>
-  <p class="sub">Solves every angle in the range, one after another, and records the reaction force at the support for each.</p>
-
-  <form id="sweepForm">
-    <label for="sweep_input_path">Input .inp file path</label>
-    <input type="text" id="sweep_input_path" placeholder="D:\path\to\your_single_ply.inp">
-
-    <label for="sweep_output_folder">Output folder</label>
-    <input type="text" id="sweep_output_folder" placeholder="D:\Git_Composite_Automation\fem-automation\runs\sweep1">
-
-    <div class="row">
-      <div>
-        <label for="angle_min">Start angle (&deg;)</label>
-        <input type="number" id="angle_min" value="-90" step="1">
+      <div class="row">
+        <div>
+          <label for="angle_min">Start angle (&deg;)</label>
+          <input type="number" id="angle_min" value="-90" step="any">
+        </div>
+        <div>
+          <label for="angle_max">End angle (&deg;)</label>
+          <input type="number" id="angle_max" value="90" step="any">
+        </div>
+        <div>
+          <label for="angle_step">Step (&deg;)</label>
+          <input type="number" id="angle_step" value="15" step="any" min="0">
+        </div>
       </div>
-      <div>
-        <label for="angle_max">End angle (&deg;)</label>
-        <input type="number" id="angle_max" value="90" step="1">
-      </div>
-      <div>
-        <label for="angle_step">Step (&deg;)</label>
-        <input type="number" id="angle_step" value="15" step="1" min="0.001">
-      </div>
+      <div class="hint">Ply angle is periodic every 180&deg;. Set Start = End for a single angle.</div>
+
+      <label for="num_plies">Number of plies</label>
+      <input type="number" id="num_plies" value="1" step="1" min="1">
+      <div class="hint">Every ply independently tries every angle -- combinations = angles<sup>plies</sup>.</div>
+
+      <label for="sweep_ccx_exe">CalculiX executable</label>
+      <input type="text" id="sweep_ccx_exe" value="{{ default_ccx_exe }}">
+
+      <button type="submit" id="sweepBtn">Run sweep</button>
+    </form>
+
+    <div id="sweepProgress" class="progress-line"></div>
+    <div id="sweepTableBox" class="table-wrap"></div>
+
+    <div class="overlay" id="overlay">
+      <div class="spinner"></div>
+      <div class="overlay-text" id="overlayText">Simulating&hellip;</div>
+      <div class="overlay-elapsed" id="overlayElapsed">0s elapsed</div>
+      <pre id="liveLog"></pre>
+      <button id="stopBtnInner">Stop</button>
     </div>
-    <div class="hint">Ply angle is periodic every 180&deg;, so -90..90 already covers every distinct orientation.</div>
 
-    <label for="sweep_ccx_exe">CalculiX executable</label>
-    <input type="text" id="sweep_ccx_exe" value="{{ default_ccx_exe }}">
-    <div class="hint">Reaction force is read automatically from whichever node set the .inp already has RF history output configured for (falls back to NS_Fixed if none exists) -- no need to type a node set name.</div>
-
-    <button type="submit" id="sweepBtn">Run sweep</button>
-  </form>
-
-  <div id="sweepProgress" class="progress-line"></div>
-  <div id="sweepTableBox"></div>
-
-  <div class="overlay" id="overlay">
-    <div class="spinner"></div>
-    <div class="overlay-text" id="overlayText">Simulating&hellip;</div>
-    <div class="overlay-elapsed" id="overlayElapsed">0s elapsed</div>
-    <pre id="liveLog"></pre>
-    <button id="stopBtnInner">Stop</button>
-  </div>
-
-<script>
-// ---------- shared helpers ----------
-
-function escapeHtml(s) {
-  return (s === null || s === undefined ? "" : String(s))
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function fmtNum(v, digits) {
-  if (v === null || v === undefined) return "--";
-  return Number(v).toFixed(digits === undefined ? 3 : digits);
-}
-
-const overlay = document.getElementById("overlay");
-const overlayText = document.getElementById("overlayText");
-const overlayElapsed = document.getElementById("overlayElapsed");
-const liveLog = document.getElementById("liveLog");
-const stopBtnInner = document.getElementById("stopBtnInner");
-
-let activeStopUrl = null;
-let overlayStartTime = null;
-let overlayTimer = null;
-
-function showOverlay(show, text) {
-  overlay.style.display = show ? "flex" : "none";
-  if (text) overlayText.textContent = text;
-
-  if (show && overlayTimer === null) {
-    overlayStartTime = Date.now();
-    overlayElapsed.textContent = "0s elapsed";
-    overlayTimer = setInterval(() => {
-      const secs = Math.floor((Date.now() - overlayStartTime) / 1000);
-      overlayElapsed.textContent = secs + "s elapsed";
-    }, 1000);
-  } else if (!show && overlayTimer !== null) {
-    clearInterval(overlayTimer);
-    overlayTimer = null;
+  <script>
+  function escapeHtml(s) {
+    return (s === null || s === undefined ? "" : String(s))
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
-}
-
-stopBtnInner.addEventListener("click", async () => {
-  if (!activeStopUrl) return;
-  stopBtnInner.disabled = true;
-  await fetch(activeStopUrl, { method: "POST" });
-  stopBtnInner.disabled = false;
-});
-
-// ---------- single run ----------
-
-const form = document.getElementById("runForm");
-const genBox = document.getElementById("genBox");
-const resultBox = document.getElementById("resultBox");
-const singleInputs = form.querySelectorAll("input, button");
-
-let currentJobId = null;
-let pollTimer = null;
-
-function setDisabled(els, disabled) {
-  els.forEach(el => el.disabled = disabled);
-}
-
-function renderGen(g) {
-  genBox.innerHTML = `
-    <div class="box ok">
-      <h3>.inp generated</h3>
-      <table>
-        <tr><td>Elset</td><td class="mono">${escapeHtml(g.elset)}</td></tr>
-        <tr><td>Material</td><td class="mono">${escapeHtml(g.material)}</td></tr>
-        <tr><td>Orientation name</td><td class="mono">${escapeHtml(g.orientation_name)}</td></tr>
-        <tr><td>Angle</td><td class="mono">${g.angle_deg}&deg;</td></tr>
-        <tr><td>New vector line</td><td class="mono">${escapeHtml(g.new_vector_line)}</td></tr>
-        <tr><td>Written to</td><td class="mono">${escapeHtml(g.output_path)}</td></tr>
-      </table>
-    </div>`;
-}
-
-function renderResult(r) {
-  let boxClass = "warn";
-  let heading = "CalculiX ran, but did not clearly converge -- check the output below";
-  if (r.stopped) {
-    boxClass = "warn";
-    heading = "Stopped by user";
-  } else if (r.has_error) {
-    boxClass = "err";
-    heading = "CalculiX reported an error";
-  } else if (r.converged && r.frd_exists) {
-    boxClass = "ok";
-    heading = "CalculiX finished, converged";
+  function fmtNum(v, digits) {
+    if (v === null || v === undefined) return "--";
+    return Number(v).toFixed(digits === undefined ? 3 : digits);
   }
-  resultBox.innerHTML = `
-    <div class="box ${boxClass}">
-      <h3>${heading}</h3>
-      <table>
-        <tr><td>Exit code</td><td class="mono">${r.returncode}</td></tr>
-        <tr><td>.frd written</td><td class="mono">${r.frd_exists}</td></tr>
-        <tr><td>.frd path</td><td class="mono">${escapeHtml(r.frd_path)}</td></tr>
-      </table>
-      <pre>${escapeHtml(r.output_tail)}</pre>
-    </div>`;
-}
+  function setDisabled(els, disabled) { els.forEach(el => el.disabled = disabled); }
 
-function renderError(box, msg) {
-  box.innerHTML = `<div class="box err"><strong>Error:</strong> ${escapeHtml(msg)}</div>`;
-}
+  const overlay = document.getElementById("overlay");
+  const overlayText = document.getElementById("overlayText");
+  const overlayElapsed = document.getElementById("overlayElapsed");
+  const liveLog = document.getElementById("liveLog");
+  const stopBtnInner = document.getElementById("stopBtnInner");
 
-async function pollSingle() {
-  const res = await fetch(`/status/${currentJobId}`);
-  const data = await res.json();
-  if (!data.ok) {
-    clearInterval(pollTimer);
-    showOverlay(false);
-    setDisabled(singleInputs, false);
-    renderError(resultBox, data.error);
-    return;
-  }
-  liveLog.textContent = data.log_tail;
-  if (data.done) {
-    clearInterval(pollTimer);
-    showOverlay(false);
-    setDisabled(singleInputs, false);
-    renderResult(data.result);
-  }
-}
+  let activeStopUrl = null;
+  let overlayStartTime = null;
+  let overlayTimer = null;
 
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  genBox.innerHTML = "";
-  resultBox.innerHTML = "";
-  liveLog.textContent = "";
-  setDisabled(singleInputs, true);
-  showOverlay(true, "Simulating\u2026");
-
-  const payload = {
-    input_path: document.getElementById("input_path").value,
-    output_folder: document.getElementById("output_folder").value,
-    angle: document.getElementById("angle").value,
-    ccx_exe: document.getElementById("ccx_exe").value,
-  };
-
-  try {
-    const res = await fetch("/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!data.ok) {
-      showOverlay(false);
-      setDisabled(singleInputs, false);
-      renderError(resultBox, data.error);
-      return;
+  function showOverlay(show, text) {
+    overlay.style.display = show ? "flex" : "none";
+    if (text) overlayText.textContent = text;
+    if (show && overlayTimer === null) {
+      overlayStartTime = Date.now();
+      overlayElapsed.textContent = "0s elapsed";
+      overlayTimer = setInterval(() => {
+        const secs = Math.floor((Date.now() - overlayStartTime) / 1000);
+        overlayElapsed.textContent = secs + "s elapsed";
+      }, 1000);
+    } else if (!show && overlayTimer !== null) {
+      clearInterval(overlayTimer);
+      overlayTimer = null;
     }
-    currentJobId = data.job_id;
-    activeStopUrl = `/stop/${currentJobId}`;
-    renderGen(data.gen_result);
-    pollTimer = setInterval(pollSingle, 1200);
-  } catch (err) {
-    showOverlay(false);
-    setDisabled(singleInputs, false);
-    renderError(resultBox, String(err));
   }
-});
 
-// ---------- angle sweep ----------
-
-const sweepForm = document.getElementById("sweepForm");
-const sweepInputs = sweepForm.querySelectorAll("input, button");
-const sweepProgress = document.getElementById("sweepProgress");
-const sweepTableBox = document.getElementById("sweepTableBox");
-
-let sweepJobId = null;
-let sweepPollTimer = null;
-let sweepResults = [];
-let sweepSort = { key: "angle", dir: "asc" };
-
-function sortResults(results, key, dir) {
-  const copy = results.slice();
-  copy.sort((a, b) => {
-    let av = a[key], bv = b[key];
-    if (av === null || av === undefined) av = dir === "asc" ? Infinity : -Infinity;
-    if (bv === null || bv === undefined) bv = dir === "asc" ? Infinity : -Infinity;
-    if (av < bv) return dir === "asc" ? -1 : 1;
-    if (av > bv) return dir === "asc" ? 1 : -1;
-    return 0;
+  stopBtnInner.addEventListener("click", async () => {
+    if (!activeStopUrl) return;
+    stopBtnInner.disabled = true;
+    await fetch(activeStopUrl, { method: "POST" });
+    stopBtnInner.disabled = false;
   });
-  return copy;
-}
 
-function renderSweepTable() {
-  const sorted = sortResults(sweepResults, sweepSort.key, sweepSort.dir);
-  const arrow = (key) => sweepSort.key === key ? (sweepSort.dir === "asc" ? "\u25b2" : "\u25bc") : "";
+  const sweepForm = document.getElementById("sweepForm");
+  const sweepInputs = sweepForm.querySelectorAll("input, button");
+  const sweepProgress = document.getElementById("sweepProgress");
+  const sweepTableBox = document.getElementById("sweepTableBox");
 
-  let rows = sorted.map(r => {
-    if (r.error) {
-      return `<tr class="row-error">
-        <td>${fmtNum(r.angle, 2)}&deg;</td>
-        <td colspan="2">${escapeHtml(r.error)}</td>
-      </tr>`;
-    }
-    return `<tr>
-      <td>${fmtNum(r.angle, 2)}&deg;</td>
-      <td>${r.node_id}</td>
-      <td>${fmtNum(r.rf, 4)}</td>
-    </tr>`;
-  }).join("");
+  let sweepJobId = null;
+  let sweepPollTimer = null;
+  let sweepResults = [];
+  let sweepSort = { key: "combo", dir: "asc" };
 
-  sweepTableBox.innerHTML = `
-    <table class="resultsTable">
-      <thead>
-        <tr>
-          <th data-key="angle">Orientation (&deg;) <span class="sort-arrow">${arrow("angle")}</span></th>
-          <th data-key="node_id">Node ID <span class="sort-arrow">${arrow("node_id")}</span></th>
-          <th data-key="rf">RF (N) <span class="sort-arrow">${arrow("rf")}</span></th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+  function sortResults(results, key, dir) {
+    const copy = results.slice();
+    copy.sort((a, b) => {
+      let av = a[key], bv = b[key];
+      if (av === null || av === undefined) av = dir === "asc" ? Infinity : -Infinity;
+      if (bv === null || bv === undefined) bv = dir === "asc" ? Infinity : -Infinity;
+      if (av < bv) return dir === "asc" ? -1 : 1;
+      if (av > bv) return dir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return copy;
+  }
 
-  sweepTableBox.querySelectorAll("th[data-key]").forEach(th => {
-    th.addEventListener("click", () => {
-      const key = th.getAttribute("data-key");
-      if (sweepSort.key === key) {
-        sweepSort.dir = sweepSort.dir === "asc" ? "desc" : "asc";
-      } else {
-        sweepSort.key = key;
-        sweepSort.dir = "asc";
+  // Backend emits one flat row per (combo, ply, node): {combo, ply, angle, node_id, rf, error}.
+  // Collapse to one row per combination: a column per ply angle, a column per node's RF.
+  function buildGroupedRows(results) {
+    const nodeIds = [...new Set(
+      results.filter(r => r.node_id !== null && r.node_id !== undefined).map(r => r.node_id)
+    )].sort((a, b) => Number(a) - Number(b));
+    const plyNums = results.filter(r => r.ply !== null && r.ply !== undefined).map(r => Number(r.ply));
+    const plyCount = plyNums.length ? Math.max(...plyNums) : 1;
+
+    const map = new Map();
+    for (const r of results) {
+      if (!map.has(r.combo)) {
+        const row = { combo: r.combo, error: null };
+        for (let p = 1; p <= plyCount; p++) row["ply_" + p] = null;
+        for (const nid of nodeIds) row["node_" + nid] = null;
+        map.set(r.combo, row);
       }
-      renderSweepTable();
+      const row = map.get(r.combo);
+      if (r.error) { row.error = r.error; continue; }
+      if (r.ply !== null && r.ply !== undefined) row["ply_" + r.ply] = r.angle;
+      if (r.node_id !== null && r.node_id !== undefined) row["node_" + r.node_id] = r.rf;
+    }
+    return { rows: Array.from(map.values()), plyCount, nodeIds };
+  }
+
+  function renderSweepTable() {
+    const { rows: grouped, plyCount, nodeIds } = buildGroupedRows(sweepResults);
+    const sorted = sortResults(grouped, sweepSort.key, sweepSort.dir);
+    const arrow = (key) => sweepSort.key === key ? (sweepSort.dir === "asc" ? "\u25b2" : "\u25bc") : "";
+    const totalCols = 1 + plyCount + nodeIds.length;
+
+    let rows = sorted.map(r => {
+      if (r.error) {
+        return `<tr class="row-error"><td>${escapeHtml(r.combo)}</td><td colspan="${totalCols - 1}">${escapeHtml(r.error)}</td></tr>`;
+      }
+      let cells = `<td>${escapeHtml(r.combo)}</td>`;
+      for (let p = 1; p <= plyCount; p++) cells += `<td>${fmtNum(r["ply_" + p], 2)}&deg;</td>`;
+      for (const nid of nodeIds) cells += `<td>${fmtNum(r["node_" + nid], 4)}</td>`;
+      return `<tr>${cells}</tr>`;
+    }).join("");
+
+    let headerCells = `<th data-key="combo">Combination <span class="sort-arrow">${arrow("combo")}</span></th>`;
+    for (let p = 1; p <= plyCount; p++) {
+      headerCells += `<th data-key="ply_${p}">Ply ${p} (&deg;) <span class="sort-arrow">${arrow("ply_" + p)}</span></th>`;
+    }
+    for (const nid of nodeIds) {
+      headerCells += `<th data-key="node_${nid}">Node ${escapeHtml(nid)} RF (N) <span class="sort-arrow">${arrow("node_" + nid)}</span></th>`;
+    }
+
+    sweepTableBox.innerHTML = `<table class="resultsTable"><thead><tr>${headerCells}</tr></thead><tbody>${rows}</tbody></table>`;
+
+    sweepTableBox.querySelectorAll("th[data-key]").forEach(th => {
+      th.addEventListener("click", () => {
+        const key = th.getAttribute("data-key");
+        if (sweepSort.key === key) {
+          sweepSort.dir = sweepSort.dir === "asc" ? "desc" : "asc";
+        } else {
+          sweepSort.key = key;
+          sweepSort.dir = "asc";
+        }
+        renderSweepTable();
     });
   });
 }
@@ -378,15 +236,16 @@ async function pollSweep() {
     sweepProgress.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`;
     return;
   }
-
   sweepResults = data.results;
   renderSweepTable();
 
-  const anglesDone = new Set(data.results.map(r => r.angle)).size;
+  const combosDone = new Set(data.results.map(r => r.combo)).size;
   if (!data.done) {
-    const angleLabel = data.current_angle === null ? "" : ` (${fmtNum(data.current_angle, 2)}\u00b0)`;
-    const label = `Running angle ${data.current_index + 1} of ${data.total}${angleLabel}\u2026`;
-    sweepProgress.textContent = `${anglesDone} / ${data.total} angles done`;
+    const comboLabel = (data.current_combo === null || data.current_combo === undefined)
+      ? ""
+      : ` (${data.current_combo.map(a => fmtNum(a, 2) + "\u00b0").join(" / ")})`;
+    const label = `Running combination ${data.current_index + 1} of ${data.total}${comboLabel}\u2026`;
+    sweepProgress.textContent = `${combosDone} / ${data.total} combinations done`;
     showOverlay(true, label);
     liveLog.textContent = data.log_tail;
   } else {
@@ -396,7 +255,7 @@ async function pollSweep() {
     if (data.fatal_error) {
       sweepProgress.innerHTML = `<span class="row-error">Sweep aborted: ${escapeHtml(data.fatal_error)}</span>`;
     } else {
-      sweepProgress.textContent = `Done -- ${anglesDone} / ${data.total} angles completed.`;
+      sweepProgress.textContent = `Done -- ${combosDone} / ${data.total} combinations completed.`;
     }
   }
 }
@@ -416,6 +275,7 @@ sweepForm.addEventListener("submit", async (e) => {
     angle_min: document.getElementById("angle_min").value,
     angle_max: document.getElementById("angle_max").value,
     angle_step: document.getElementById("angle_step").value,
+    num_plies: document.getElementById("num_plies").value,
     ccx_exe: document.getElementById("sweep_ccx_exe").value,
   };
 
