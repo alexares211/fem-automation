@@ -58,14 +58,17 @@ def run_sweep(job_id, input_path, output_folder, combos, ccx_exe):
             file_name = base_name + "_" + suffix + "deg.inp"
             output_path = os.path.join(output_folder, file_name)
 
-            def add_row(ply, angle, node_id, rf, error):
+            # One record per combination. `angles` is the per-ply layup
+            # (one entry per ply, stacking order); `rf_by_node` maps node id
+            # -> reaction-force magnitude at that constrained node. Reaction
+            # force is a property of the whole solved model, not of a ply,
+            # so it is not broken out per ply.
+            def add_result(rf_by_node=None, error=None):
                 job["results"].append(
                     {
                         "combo": combo_num,
-                        "ply": ply,
-                        "angle": angle,
-                        "node_id": node_id,
-                        "rf": rf,
+                        "angles": list(combo),
+                        "rf_by_node": rf_by_node or {},
                         "error": error,
                     }
                 )
@@ -73,7 +76,7 @@ def run_sweep(job_id, input_path, output_folder, combos, ccx_exe):
             try:
                 gen_result = generate_inp(input_path, output_path, list(combo))
             except PlyEditError as e:
-                add_row(None, None, None, None, str(e))
+                add_result(error=str(e))
                 continue
 
             rf_nset = gen_result["rf_nset"]
@@ -81,22 +84,23 @@ def run_sweep(job_id, input_path, output_folder, combos, ccx_exe):
             job["log_tail"] = run_result["output_tail"]
 
             if run_result["stopped"]:
-                add_row(None, None, None, None, "Stopped by user")
+                add_result(error="Stopped by user")
                 break
 
             if run_result["has_error"] or not run_result["converged"]:
-                add_row(None, None, None, None, "CalculiX did not converge cleanly")
+                add_result(error="CalculiX did not converge cleanly")
                 continue
 
             dat_path = os.path.splitext(output_path)[0] + ".dat"
             try:
                 rf = read_reaction_force(dat_path, rf_nset)
-                for ply_idx, ply_angle in enumerate(combo, start=1):
-                    for node_id, (fx, fy, fz) in sorted(rf["per_node"].items()):
-                        magnitude = math.sqrt(fx ** 2 + fy ** 2 + fz ** 2)
-                        add_row(ply_idx, ply_angle, node_id, magnitude, None)
+                rf_by_node = {
+                    str(node_id): math.sqrt(fx ** 2 + fy ** 2 + fz ** 2)
+                    for node_id, (fx, fy, fz) in rf["per_node"].items()
+                }
+                add_result(rf_by_node=rf_by_node)
             except DatParseError as e:
-                add_row(None, None, None, None, "Could not read reaction force: " + str(e))
+                add_result(error="Could not read reaction force: " + str(e))
 
         try:
             summary_path = os.path.join(output_folder, "sweep_results.json")
