@@ -15,10 +15,49 @@ class InpWriteError(Exception):
     pass
 
 
+# Single element set for the whole part -- not user-configurable. A one-part
+# composite shell only ever needs "all elements" in one section.
+ELSET_NAME = "EALL"
+
+
 def _fmt(v):
     """Match PrePoMax's number style: '135100.' for integers, plain decimal otherwise."""
     f = float(v)
     return f"{int(f)}." if f == int(f) else repr(f)
+
+
+def _fmt_coord(v):
+    return f"{float(v):.10g}"
+
+
+SHELL_TYPES = ("S6", "S8R", "S3", "S4")
+
+
+def mesh_block(nodes, elements, element_type, elset_name=ELSET_NAME):
+    """Return the '*Node' + '*Element' blocks for the whole mesh.
+
+    nodes         : {id: [x, y, z]}
+    elements      : list of connectivity lists (CalculiX/gmsh node order)
+    element_type  : one of SHELL_TYPES
+    elset_name    : the set every element is put in, created right on the
+                    *Element card (default "EALL" = all elements)
+    """
+    elset_name = _check_name("Element set", elset_name)
+    if element_type not in SHELL_TYPES:
+        raise InpWriteError(f"Unsupported element type {element_type!r}.")
+    if not nodes or not elements:
+        raise InpWriteError("Mesh has no nodes / elements.")
+
+    lines = ["*Node"]
+    for nid in sorted(nodes, key=int):
+        x, y, z = nodes[nid]
+        lines.append(f"{int(nid)}, {_fmt_coord(x)}, {_fmt_coord(y)}, {_fmt_coord(z)}")
+
+    lines.append(f"*Element, Type={element_type}, Elset={elset_name}")
+    for i, conn in enumerate(elements, start=1):
+        lines.append(f"{i}, " + ", ".join(str(int(n)) for n in conn))
+
+    return "\n".join(lines)
 
 
 def material_block(name, constants):
@@ -90,7 +129,7 @@ def _check_name(label, name):
     return name
 
 
-def section_block(elset, material, angles, thickness, symmetric=False):
+def section_block(material, angles, thickness, symmetric=False, elset=ELSET_NAME):
     """Return one uniquely-named '*Orientation' per ply plus the
     '*Shell section, Elset=..., Composite' card and its ply lines
     (no trailing newline). Ply names are AutoPly1, AutoPly2, ... to match
@@ -102,7 +141,7 @@ def section_block(elset, material, angles, thickness, symmetric=False):
     try:
         t = float(thickness)
     except (TypeError, ValueError):
-        raise InpWriteError("Ply thickness must be a number.")
+        raise InpWriteError("Enter a ply thickness in the Layup section.")
     if t <= 0:
         raise InpWriteError("Ply thickness must be positive.")
 
@@ -126,3 +165,166 @@ def section_block(elset, material, angles, thickness, symmetric=False):
         + f"\n*Shell section, Elset={elset}, Composite\n"
         + "\n".join(ply_lines)
     )
+
+
+# ---------- supports (Lager) ----------
+
+LAGER_ALL = "LAGER_ALL"
+
+# Lager type -> the DOF range fixed to zero in *Boundary.
+# Festlager = pinned: Ux = Uy = Uz = 0.  More types get added here later.
+LAGER_DOF = {
+    "festlager": (1, 3),
+}
+
+
+def _lager_name(index):
+    return f"Lager_{int(index)}"
+
+
+def _clean_lagers(lagers):
+    if not lagers:
+        raise InpWriteError("Place at least one support (Festlager) on the model.")
+    out = []
+    for lg in lagers:
+        typ = (lg.get("type") or "festlager").strip().lower()
+        if typ not in LAGER_DOF:
+            raise InpWriteError(f"Unknown support type {typ!r}.")
+        try:
+            node = int(lg["node"])
+            index = int(lg["index"])
+        except (KeyError, TypeError, ValueError):
+            raise InpWriteError("Each support needs an integer node and index.")
+        out.append({"index": index, "node": node, "type": typ})
+    out.sort(key=lambda l: l["index"])
+    return out
+
+
+def lager_nsets(lagers):
+    """One *Nset per support plus a combined LAGER_ALL set (for RF output)."""
+    lagers = _clean_lagers(lagers)
+    lines = []
+    for lg in lagers:
+        lines.append(f"*Nset, Nset={_lager_name(lg['index'])}")
+        lines.append(str(lg["node"]))
+    lines.append(f"*Nset, Nset={LAGER_ALL}")
+    lines.append(", ".join(str(lg["node"]) for lg in lagers))
+    return "\n".join(lines)
+
+
+def lager_boundaries(lagers):
+    """The *Boundary block (goes inside the step)."""
+    lagers = _clean_lagers(lagers)
+    lines = ["*Boundary"]
+    for lg in lagers:
+        d0, d1 = LAGER_DOF[lg["type"]]
+        lines.append(f"{_lager_name(lg['index'])}, {d0}, {d1}, 0")
+    return "\n".join(lines)
+
+
+# ---------- loads (force / prescribed displacement) ----------
+
+LOAD_TYPES = ("force", "displacement")
+
+
+def _load_name(index):
+    return f"Load_{int(index)}"
+
+
+def _clean_loads(loads):
+    """Each load: {index, node, type in LOAD_TYPES, dir:[dx,dy,dz], mag}.
+    Returns them with an extra 'comp' = magnitude * unit(dir), and drops
+    loads whose components are all ~0.
+    """
+    out = []
+    for ld in loads or []:
+        typ = (ld.get("type") or "").strip().lower()
+        if typ not in LOAD_TYPES:
+            raise InpWriteError(f"Unknown load type {typ!r}.")
+        try:
+            node = int(ld["node"])
+            index = int(ld["index"])
+            d = [float(v) for v in (ld.get("dir") or [0, 0, 0])]
+            mag = float(ld.get("mag"))
+        except (KeyError, TypeError, ValueError):
+            raise InpWriteError("Each load needs a node, index, direction and magnitude.")
+        if len(d) != 3:
+            raise InpWriteError("Load direction must be three numbers (X, Y, Z).")
+        norm = (d[0] ** 2 + d[1] ** 2 + d[2] ** 2) ** 0.5
+        if norm == 0 or mag == 0:
+            continue  # nothing applied
+        comp = [mag * d[i] / norm for i in range(3)]
+        out.append({"index": index, "node": node, "type": typ, "comp": comp})
+    out.sort(key=lambda l: l["index"])
+    return out
+
+
+def load_nsets(loads):
+    loads = _clean_loads(loads)
+    lines = []
+    for ld in loads:
+        lines.append(f"*Nset, Nset={_load_name(ld['index'])}")
+        lines.append(str(ld["node"]))
+    return "\n".join(lines)
+
+
+def load_cards(loads):
+    """*Cload lines for 'force' loads and *Boundary lines for 'displacement'
+    loads (both go inside the step). Only non-zero components are written.
+    """
+    loads = _clean_loads(loads)
+    cload, disp = [], []
+    for ld in loads:
+        name = _load_name(ld["index"])
+        for dof, val in enumerate(ld["comp"], start=1):
+            if abs(val) < 1e-12:
+                continue
+            if ld["type"] == "force":
+                cload.append(f"{name}, {dof}, {_fmt(val)}")
+            else:
+                disp.append(f"{name}, {dof}, {dof}, {_fmt(val)}")
+    out = []
+    if disp:
+        out.append("*Boundary\n" + "\n".join(disp))
+    if cload:
+        out.append("*Cload\n" + "\n".join(cload))
+    return "\n".join(out)
+
+
+def full_inp(nodes, elements, element_type, material_name, constants,
+             ply_angles, ply_thickness, lagers, symmetric=False, nlgeom=True,
+             loads=None):
+    """Assemble a complete, solvable CalculiX .inp from the browser's model:
+    structured mesh + orthotropic material + composite layup + Festlager
+    supports + point loads (force / prescribed displacement). Reaction force
+    is written for LAGER_ALL via *Node print.
+    """
+    load_ns = load_nsets(loads)
+    load_c = load_cards(loads)
+    parts = [
+        "*Heading",
+        "Generated by fem-automation (STEP -> structured grid)",
+        mesh_block(nodes, elements, element_type, ELSET_NAME),
+        lager_nsets(lagers),
+    ]
+    if load_ns:
+        parts.append(load_ns)
+    parts += [
+        material_block(material_name, constants),
+        section_block(material_name, ply_angles, ply_thickness, symmetric),
+        "*Step, Nlgeom" if nlgeom else "*Step",
+        "*Static",
+        lager_boundaries(lagers),
+    ]
+    if load_c:
+        parts.append(load_c)
+    parts += [
+        f"*Node print, Nset={LAGER_ALL}, Global=Yes",
+        "RF, U",
+        "*Node file",
+        "RF, U",
+        "*El file",
+        "S, E",
+        "*End step",
+    ]
+    return "\n".join(parts) + "\n"

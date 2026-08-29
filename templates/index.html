@@ -46,8 +46,8 @@
   </head>
   <body>
     <section id="stepSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
-      <h1 style="margin-bottom:4px;">STEP &rarr; Mesh</h1>
-      <p class="sub">Drop a STEP file (or paste its path), choose the shell element, and generate a surface mesh to preview.</p>
+      <h1 style="margin-bottom:4px;">STEP &rarr; Mesh &amp; Supports</h1>
+      <p class="sub">Drop a STEP file (or paste its path). It is meshed as a regular rectangular grid so supports land on exact nodes. Drag the <strong>Festlager</strong> tile onto a node.</p>
 
       <div id="stepDrop" style="border:2px dashed #c9c4bd; border-radius:6px; padding:16px; text-align:center; color:#5b6462; font-size:13px; cursor:pointer; background:#faf9f7;">
         Drop a <strong>.step / .stp</strong> file here, or click to choose
@@ -57,26 +57,50 @@
       <label for="stepPath">&hellip; or paste the file path</label>
       <input type="text" id="stepPath" placeholder="D:\path\to\part.step">
 
-      <div class="row" style="margin-top:14px;">
-        <div>
-          <label for="stepElemType">Shell element</label>
-          <select id="stepElemType" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:4px;"></select>
-          <div class="hint">S6 / S8R are the types CalculiX accepts for a composite section. S3 / S4 are first-order preview only.</div>
-        </div>
-        <div>
-          <label for="stepSize">Target element size</label>
-          <input type="number" id="stepSize" step="any" min="0" placeholder="auto (~1/25 of part size)">
-          <div class="hint">Blank = automatic. Model units (mm for the TorsionPlatte template).</div>
-        </div>
-      </div>
+      <label for="stepSpacing">Node spacing (mm)</label>
+      <input type="number" id="stepSpacing" step="any" min="0" value="1">
+      <div class="hint">Grid node spacing. 1&nbsp;mm gives a node every millimetre so a Festlager can sit exactly where you want. Larger = coarser + faster.</div>
 
       <button type="button" id="stepBtn">Process STEP file</button>
-
       <div id="stepMsg" class="progress-line"></div>
-      <div id="stepViewport" style="width:100%; height:440px; margin-top:10px; border:1px solid #ddd; border-radius:6px; background:#ffffff; position:relative; overflow:hidden;">
-        <div id="stepViewHint" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#7c8a86; font-size:13px;">no mesh yet</div>
+
+      <div style="display:flex; gap:10px; margin-top:10px; align-items:stretch;">
+        <div id="stepViewport" style="flex:1; height:460px; border:1px solid #ddd; border-radius:6px; background:#ffffff; position:relative; overflow:hidden;">
+          <div id="stepViewHint" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#7c8a86; font-size:13px;">no mesh yet</div>
+          <div id="viewControls" style="position:absolute; top:8px; right:8px; display:flex; flex-direction:column; gap:4px; z-index:5;">
+            <button type="button" id="viewFit" title="Fit view" style="width:28px; height:28px; margin:0; padding:0; font-size:15px; line-height:1; background:rgba(255,255,255,0.92); color:#3a3a3a; border:1px solid #c7c7c7; border-radius:5px; cursor:pointer;">&#9974;</button>
+            <button type="button" id="viewIn" title="Zoom in" style="width:28px; height:28px; margin:0; padding:0; font-size:17px; line-height:1; background:rgba(255,255,255,0.92); color:#3a3a3a; border:1px solid #c7c7c7; border-radius:5px; cursor:pointer;">+</button>
+            <button type="button" id="viewOut" title="Zoom out" style="width:28px; height:28px; margin:0; padding:0; font-size:17px; line-height:1; background:rgba(255,255,255,0.92); color:#3a3a3a; border:1px solid #c7c7c7; border-radius:5px; cursor:pointer;">&#8722;</button>
+          </div>
+        </div>
+        <div id="lagerPalette" style="width:104px; border:1px solid #ddd; border-radius:6px; display:flex; flex-direction:column; overflow:hidden;">
+          <div style="background:#f2ddcf; padding:6px 4px 4px; font-size:10px; font-weight:600; color:#8a3d15; text-align:center; letter-spacing:0.03em;">SUPPORTS</div>
+          <div style="background:#fbf1ea; padding:8px; display:flex; flex-direction:column; gap:8px; flex:1;">
+            <div class="pal-tile" data-kind="lager" data-type="festlager" draggable="true"
+                 style="border:1px solid #a53f0a; border-radius:5px; padding:8px 4px; text-align:center; font-size:11px; cursor:grab; background:#c14a0c; color:#fff; user-select:none;">
+              <div style="font-size:22px; line-height:1;">&#9155;</div>
+              Festlager
+            </div>
+          </div>
+          <div style="background:#dfeeda; padding:6px 4px 4px; font-size:10px; font-weight:600; color:#2f6b2f; text-align:center; letter-spacing:0.03em;">LOADS</div>
+          <div style="background:#eef5ec; padding:8px; display:flex; flex-direction:column; gap:8px;">
+            <div class="pal-tile" data-kind="load" data-type="force" draggable="true"
+                 style="border:1px solid #186418; border-radius:5px; padding:8px 4px; text-align:center; font-size:11px; cursor:grab; background:#1f7a1f; color:#fff; user-select:none;">
+              <div style="font-size:22px; line-height:1;">&#8595;</div>
+              Force
+            </div>
+            <div class="pal-tile" data-kind="load" data-type="displacement" draggable="true"
+                 style="border:1px solid #742aa3; border-radius:5px; padding:8px 4px; text-align:center; font-size:11px; cursor:grab; background:#8a2fc1; color:#fff; user-select:none;">
+              <div style="font-size:22px; line-height:1;">&#8693;</div>
+              Displace&shy;ment
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="hint">Drag to rotate &middot; scroll to zoom &middot; right-drag (or Shift+drag) to pan</div>
+      <div class="hint">Drag to rotate &middot; scroll to zoom &middot; right-drag (or Shift+drag) to pan &middot; drag a tile onto the mesh to drop it on a node</div>
+
+      <div id="lagerList" style="margin-top:10px;"></div>
+      <div id="loadList" style="margin-top:10px;"></div>
     </section>
 
     <section id="materialSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
@@ -122,26 +146,44 @@
         </label>
       </div>
 
-      <div class="row" style="margin-top:14px;">
-        <div><label for="layupThk">Ply thickness</label><input type="number" id="layupThk" step="any" value="0.184"></div>
-        <div><label for="layupMat">Material name</label><input type="text" id="layupMat" value="AS4_8552"></div>
-        <div><label for="layupElset">Element set</label><input type="text" id="layupElset" value="Eplate"></div>
-      </div>
-      <div class="hint">Material should match the Material section above. Element set is the one the mesh step creates (default "Eplate").</div>
+      <label for="layupThk">Ply thickness <span style="font-weight:400; color:#a53f0a;">(required)</span></label>
+      <input type="number" id="layupThk" step="any" min="0" placeholder="e.g. 0.184">
+      <div class="hint">No default &mdash; you must enter this. Used for every ply here and in the Angle Sweep. Uses the material from the Material section.</div>
 
       <button type="button" id="layupPreviewBtn">Preview keyword block</button>
       <div id="layupMsg" class="progress-line"></div>
       <pre id="layupBlock" style="display:none;"></pre>
     </section>
 
+    <section id="fullInpSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
+      <h1 style="margin-bottom:4px;">Full input file</h1>
+      <p class="sub">Assembles the mesh, material, layup, supports and loads into one complete <code>.inp</code> deck.</p>
+      <button type="button" id="fullInpBtn" style="background:#3f5c86;">Preview full .inp</button>
+      <div id="fullInpMsg" class="progress-line"></div>
+      <pre id="fullInpOut" style="display:none;"></pre>
+    </section>
+
+    <section id="simulateSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
+      <h1 style="margin-bottom:4px;">Simulate</h1>
+      <p class="sub">Run CalculiX once on the model with the exact layup from the Layup section, and write the result files to a folder.</p>
+
+      <label for="sim_output_folder">Output folder</label>
+      <input type="text" id="sim_output_folder" placeholder="D:\...\runs\model1">
+      <div class="hint">Created automatically if it doesn't exist yet. The deck is written as <code>model.inp</code>; CalculiX puts <code>.frd/.dat/.sta/...</code> alongside it.</div>
+
+      <label for="sim_ccx_exe">CalculiX executable</label>
+      <input type="text" id="sim_ccx_exe" value="{{ default_ccx_exe }}">
+
+      <button type="button" id="simBtn" style="background:#2f7d6b;">Simulate</button>
+      <div id="simMsg" class="progress-line"></div>
+      <div id="simResults" class="table-wrap" style="margin-top:10px;"></div>
+      <pre id="simLog" style="display:none;"></pre>
+    </section>
+
     <h1>Angle Sweep</h1>
-    <p class="sub">Tries every combination of per-ply angles from the range, solves each layup, and records the reaction force at the support.</p>
+    <p class="sub">Builds a full <code>.inp</code> for every combination of per-ply angles from the mesh, material, thickness and Festlager supports defined above, solves each, and reports the reaction force at each Lager.</p>
 
     <form id="sweepForm">
-      <label for="sweep_input_path">Input .inp file path</label>
-      <input type="text" id="sweep_input_path" placeholder="D:\path\to\your.inp">
-      <div class="hint">Must have a *Shell section, Composite card -- any number of plies.</div>
-
       <label for="sweep_output_folder">Output folder</label>
       <input type="text" id="sweep_output_folder" placeholder="D:\...\runs\sweep1">
       <div class="hint">Created automatically if it doesn't exist yet.</div>
@@ -165,6 +207,12 @@
       <label for="num_plies">Number of plies</label>
       <input type="number" id="num_plies" value="1" step="1" min="1">
       <div class="hint">Every ply independently tries every angle -- combinations = angles<sup>plies</sup>.</div>
+
+      <div style="margin-top:14px;">
+        <label style="display:inline; font-weight:400;">
+          <input type="checkbox" id="sweepNlgeom" checked> Large displacement (<code>*Step, Nlgeom</code>)
+        </label>
+      </div>
 
       <label for="sweep_ccx_exe">CalculiX executable</label>
       <input type="text" id="sweep_ccx_exe" value="{{ default_ccx_exe }}">
@@ -251,16 +299,16 @@
   }
 
   // Backend emits one record per combination:
-  //   { combo, angles: [a1, a2, ...], rf_by_node: { "201": rf, "481": rf }, error }
-  // Flatten to table rows: one column per ply angle, one column per node's RF.
+  //   { combo, angles: [a1, a2, ...], rf_by_lager: { "1": rf, "2": rf }, error }
+  // Flatten to table rows: one column per ply angle, one column per Lager's RF.
   function buildGroupedRows(results) {
     let plyCount = 1;
-    const nodeIds = new Set();
+    const lagerIds = new Set();
     for (const r of results) {
       if (Array.isArray(r.angles)) plyCount = Math.max(plyCount, r.angles.length);
-      if (r.rf_by_node) Object.keys(r.rf_by_node).forEach(nid => nodeIds.add(nid));
+      if (r.rf_by_lager) Object.keys(r.rf_by_lager).forEach(id => lagerIds.add(id));
     }
-    const nodeList = [...nodeIds].sort((a, b) => Number(a) - Number(b));
+    const lagerList = [...lagerIds].sort((a, b) => Number(a) - Number(b));
 
     const map = new Map();
     for (const r of results) {
@@ -268,19 +316,19 @@
       for (let p = 1; p <= plyCount; p++) {
         row["ply_" + p] = (Array.isArray(r.angles) && r.angles.length >= p) ? r.angles[p - 1] : null;
       }
-      for (const nid of nodeList) {
-        row["node_" + nid] = (r.rf_by_node && nid in r.rf_by_node) ? r.rf_by_node[nid] : null;
+      for (const id of lagerList) {
+        row["lager_" + id] = (r.rf_by_lager && id in r.rf_by_lager) ? r.rf_by_lager[id] : null;
       }
       map.set(r.combo, row);
     }
-    return { rows: Array.from(map.values()), plyCount, nodeIds: nodeList };
+    return { rows: Array.from(map.values()), plyCount, lagerIds: lagerList };
   }
 
   function renderSweepTable() {
-    const { rows: grouped, plyCount, nodeIds } = buildGroupedRows(sweepResults);
+    const { rows: grouped, plyCount, lagerIds } = buildGroupedRows(sweepResults);
     const sorted = sortResults(grouped, sweepSort.key, sweepSort.dir);
     const arrow = (key) => sweepSort.key === key ? (sweepSort.dir === "asc" ? "\u25b2" : "\u25bc") : "";
-    const errorColspan = Math.max(1, nodeIds.length);
+    const errorColspan = Math.max(1, lagerIds.length);
 
     let rows = sorted.map(r => {
       let cells = `<td>${escapeHtml(r.combo)}</td>`;
@@ -289,7 +337,7 @@
         cells += `<td class="row-error" colspan="${errorColspan}">${escapeHtml(r.error)}</td>`;
         return `<tr>${cells}</tr>`;
       }
-      for (const nid of nodeIds) cells += `<td>${fmtNum(r["node_" + nid], 4)}</td>`;
+      for (const id of lagerIds) cells += `<td>${fmtNum(r["lager_" + id], 4)}</td>`;
       return `<tr>${cells}</tr>`;
     }).join("");
 
@@ -297,8 +345,8 @@
     for (let p = 1; p <= plyCount; p++) {
       headerCells += `<th data-key="ply_${p}">Ply ${p} (&deg;) <span class="sort-arrow">${arrow("ply_" + p)}</span></th>`;
     }
-    for (const nid of nodeIds) {
-      headerCells += `<th data-key="node_${nid}">Node ${escapeHtml(nid)} RF (N) <span class="sort-arrow">${arrow("node_" + nid)}</span></th>`;
+    for (const id of lagerIds) {
+      headerCells += `<th data-key="lager_${id}">Lager ${escapeHtml(id)} RF (N) <span class="sort-arrow">${arrow("lager_" + id)}</span></th>`;
     }
 
     sweepTableBox.innerHTML = `<table class="resultsTable"><thead><tr>${headerCells}</tr></thead><tbody>${rows}</tbody></table>`;
@@ -360,15 +408,34 @@ sweepForm.addEventListener("submit", async (e) => {
   setDisabled(sweepInputs, true);
   showOverlay(true, "Starting sweep\u2026");
 
-  const payload = {
-    input_path: document.getElementById("sweep_input_path").value,
+  const m = window.femCollectModel ? window.femCollectModel() : {};
+  if (!m.source_path) {
+    showOverlay(false);
+    setDisabled(sweepInputs, false);
+    sweepProgress.innerHTML = `<span class="row-error">Process a STEP file first (no meshed model).</span>`;
+    return;
+  }
+  if (!m.lagers || !m.lagers.length) {
+    showOverlay(false);
+    setDisabled(sweepInputs, false);
+    sweepProgress.innerHTML = `<span class="row-error">Drop at least one Festlager on the model first.</span>`;
+    return;
+  }
+  if (!String(m.thickness).trim() || !(Number(m.thickness) > 0)) {
+    showOverlay(false);
+    setDisabled(sweepInputs, false);
+    sweepProgress.innerHTML = `<span class="row-error">Enter the ply thickness in the Layup section first.</span>`;
+    return;
+  }
+  const payload = Object.assign({}, m, {
     output_folder: document.getElementById("sweep_output_folder").value,
     angle_min: document.getElementById("angle_min").value,
     angle_max: document.getElementById("angle_max").value,
     angle_step: document.getElementById("angle_step").value,
     num_plies: document.getElementById("num_plies").value,
     ccx_exe: document.getElementById("sweep_ccx_exe").value,
-  };
+    nlgeom: document.getElementById("sweepNlgeom").checked,
+  });
 
   try {
     const res = await fetch("/sweep_start", {
@@ -394,30 +461,33 @@ sweepForm.addEventListener("submit", async (e) => {
 });
 </script>
 
-<!-- ===== STEP -> Mesh viewport ===== -->
+<!-- ===== STEP -> structured grid + Festlager placement ===== -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function () {
   const dz = document.getElementById("stepDrop");
   const fileInput = document.getElementById("stepFile");
   const pathInput = document.getElementById("stepPath");
-  const elemSel = document.getElementById("stepElemType");
-  const sizeInput = document.getElementById("stepSize");
+  const spacingInput = document.getElementById("stepSpacing");
   const btn = document.getElementById("stepBtn");
   const msg = document.getElementById("stepMsg");
   const viewport = document.getElementById("stepViewport");
   const viewHint = document.getElementById("stepViewHint");
+  const lagerListBox = document.getElementById("lagerList");
+  const loadListBox = document.getElementById("loadList");
+  const fullInpBtn = document.getElementById("fullInpBtn");
+  const fullInpMsg = document.getElementById("fullInpMsg");
+  const fullInpOut = document.getElementById("fullInpOut");
 
   let pickedFile = null;
+  let meshSource = "";               // server path of the meshed STEP
+  let nodeIds = [], nodeXYZ = null;   // parallel: id list + flat Float32 coords
+  let span = 1;
+  let normalDir = [0, 1, 0];         // out-of-plane axis (thin bbox axis)
+  let lagers = [];                  // [{type, node, xyz, index}]
+  let loads = [];                   // [{type:'force'|'displacement', node, xyz, dir:[x,y,z], mag, index}]
 
-  fetch("/element_types").then(r => r.json()).then(d => {
-    if (!d.ok) throw 0;
-    elemSel.innerHTML = d.types
-      .map(t => `<option value="${t.name}">${t.name} &mdash; ${t.desc}</option>`).join("");
-  }).catch(() => {
-    elemSel.innerHTML = ["S6", "S8R", "S3", "S4"].map(n => `<option>${n}</option>`).join("");
-  });
-
+  // ---- STEP file drop zone ----
   dz.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", () => {
     if (fileInput.files.length) { pickedFile = fileInput.files[0]; pathInput.value = ""; showPicked(); }
@@ -429,7 +499,11 @@ sweepForm.addEventListener("submit", async (e) => {
     e.preventDefault(); dz.style.background = "#faf9f7"; dz.style.borderColor = "#c9c4bd";
   }));
   dz.addEventListener("drop", e => {
-    if (e.dataTransfer.files.length) { pickedFile = e.dataTransfer.files[0]; pathInput.value = ""; showPicked(); }
+    if (e.dataTransfer.files.length) {
+      pickedFile = e.dataTransfer.files[0];
+      try { const dt = new DataTransfer(); dt.items.add(pickedFile); fileInput.files = dt.files; } catch (_) {}
+      pathInput.value = ""; showPicked();
+    }
   });
   function showPicked() {
     dz.innerHTML = `Selected: <strong>${pickedFile.name}</strong> &nbsp;(click to change)`;
@@ -437,6 +511,7 @@ sweepForm.addEventListener("submit", async (e) => {
   }
   pathInput.addEventListener("input", () => { if (pathInput.value.trim()) pickedFile = null; });
 
+  // ---- process STEP -> structured grid ----
   btn.addEventListener("click", async () => {
     const path = pathInput.value.trim();
     if (!pickedFile && !path) { msg.textContent = "Pick a STEP file or paste a path first."; return; }
@@ -447,22 +522,22 @@ sweepForm.addEventListener("submit", async (e) => {
       if (pickedFile) {
         const fd = new FormData();
         fd.append("step_file", pickedFile);
-        fd.append("element_type", elemSel.value);
-        fd.append("target_size", sizeInput.value);
+        fd.append("spacing", spacingInput.value);
         res = await fetch("/process_step", { method: "POST", body: fd });
       } else {
         res = await fetch("/process_step", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path, element_type: elemSel.value, target_size: sizeInput.value }),
+          body: JSON.stringify({ path, spacing: spacingInput.value }),
         });
       }
       const data = await res.json();
       if (!data.ok) { msg.innerHTML = `<span class="row-error">${data.error}</span>`; return; }
+      meshSource = data.source_path;
       msg.textContent =
-        `${data.element_type}: ${data.num_elements} elements, ${data.num_nodes} nodes ` +
-        `(element size ${Number(data.target_size).toFixed(3)})`;
-      showMesh(data.render, data.bbox);
+        `S8R grid: ${data.num_elements} elements, ${data.num_nodes} nodes ` +
+        `(spacing ${Number(data.spacing).toFixed(3)} mm)`;
+      showMesh(data);
     } catch (err) {
       msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
     } finally {
@@ -470,10 +545,25 @@ sweepForm.addEventListener("submit", async (e) => {
     }
   });
 
-  // --- minimal three.js orbit viewport ---
-  let renderer, scene, camera, meshGroup, raf = null;
+  // ---- minimal three.js orbit viewport ----
+  let renderer, scene, camera, meshGroup, markerGroup, axesGroup, meshObj, raf = null;
   const target = new THREE.Vector3();
-  const sph = { r: 10, theta: Math.PI * 0.25, phi: Math.PI * 0.35 };
+  const HOME = { theta: Math.PI * 0.25, phi: Math.PI * 0.35 };
+  const sph = { r: 10, theta: HOME.theta, phi: HOME.phi };
+  const home = { target: new THREE.Vector3(), r: 10 };   // "fit" view, set per mesh
+  const raycaster = new THREE.Raycaster();
+
+  function fitView() {
+    if (!renderer) return;
+    target.copy(home.target);
+    sph.r = home.r;
+    sph.theta = HOME.theta;
+    sph.phi = HOME.phi;
+  }
+  function zoomBy(f) { if (renderer) sph.r = Math.max(1e-4, sph.r * f); }
+  document.getElementById("viewFit").addEventListener("click", fitView);
+  document.getElementById("viewIn").addEventListener("click", () => zoomBy(0.8));
+  document.getElementById("viewOut").addEventListener("click", () => zoomBy(1.25));
 
   function initViewer() {
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -484,8 +574,13 @@ sweepForm.addEventListener("submit", async (e) => {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(45, viewport.clientWidth / viewport.clientHeight, 0.01, 1e7);
     meshGroup = new THREE.Group();
+    markerGroup = new THREE.Group();
+    axesGroup = new THREE.Group();
     scene.add(meshGroup);
+    scene.add(markerGroup);
+    scene.add(axesGroup);
     attachControls(renderer.domElement);
+    attachDropTarget(renderer.domElement);
     window.addEventListener("resize", onResize);
     loop();
   }
@@ -528,29 +623,277 @@ sweepForm.addEventListener("submit", async (e) => {
     });
     dom.addEventListener("wheel", e => { e.preventDefault(); sph.r *= (1 + Math.sign(e.deltaY) * 0.12); }, { passive: false });
   }
-  function showMesh(render, bbox) {
+
+  function showMesh(data) {
     if (!renderer) initViewer();
     viewHint.style.display = "none";
     while (meshGroup.children.length) meshGroup.remove(meshGroup.children[0]);
+    lagers = [];
+    loads = [];
+    rebuildMarkers();
+    renderLagerList();
+    renderLoadList();
 
+    const render = data.render, bbox = data.bbox;
     const pos = new Float32Array(render.positions);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     geo.setIndex(render.tris);
     geo.computeVertexNormals();
-    meshGroup.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial(
-      { color: 0x3d7ea6, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })));
+    meshObj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial(
+      { color: 0x9fbcd0, side: THREE.DoubleSide, transparent: true, opacity: 0.92 }));
+    meshGroup.add(meshObj);
 
     const egeo = new THREE.BufferGeometry();
     egeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     egeo.setIndex(render.edges);
-    meshGroup.add(new THREE.LineSegments(egeo, new THREE.LineBasicMaterial({ color: 0x0c1a16 })));
+    meshGroup.add(new THREE.LineSegments(egeo, new THREE.LineBasicMaterial({ color: 0x33454f })));
+
+    // full node table for snapping supports to exact nodes
+    const nd = data.nodes || {};
+    nodeIds = Object.keys(nd).map(Number);
+    nodeXYZ = new Float32Array(nodeIds.length * 3);
+    nodeIds.forEach((id, i) => {
+      const p = nd[id]; nodeXYZ[3 * i] = p[0]; nodeXYZ[3 * i + 1] = p[1]; nodeXYZ[3 * i + 2] = p[2];
+    });
 
     const cx = (bbox[0] + bbox[3]) / 2, cy = (bbox[1] + bbox[4]) / 2, cz = (bbox[2] + bbox[5]) / 2;
-    const span = Math.max(bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2], 1e-6);
-    target.set(cx, cy, cz);
-    sph.r = span * 2.2;
+    const ext = [bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2]];
+    span = Math.max(ext[0], ext[1], ext[2], 1e-6);
+    const flat = ext.indexOf(Math.min(ext[0], ext[1], ext[2]));
+    normalDir = [0, 0, 0]; normalDir[flat] = 1;   // out-of-plane axis
+    home.target.set(cx, cy, cz);
+    home.r = span * 2.2;
+    fitView();
+    buildAxes();
   }
+
+  // origin coordinate triad (red X, green Y, blue Z) at world (0,0,0)
+  function buildAxes() {
+    while (axesGroup.children.length) axesGroup.remove(axesGroup.children[0]);
+    const L = span * 0.35;
+    axesGroup.add(new THREE.AxesHelper(L));
+    const tip = [["X", 0xd11e1e, [L, 0, 0]], ["Y", 0x1a9c1a, [0, L, 0]], ["Z", 0x1e5fd1, [0, 0, L]]];
+    tip.forEach(([t, col, p]) => {
+      const s = axisLabelSprite(t, col);
+      s.position.set(p[0] * 1.12, p[1] * 1.12, p[2] * 1.12);
+      axesGroup.add(s);
+    });
+  }
+  function axisLabelSprite(text, color) {
+    const c = document.createElement("canvas"); c.width = c.height = 48;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#" + color.toString(16).padStart(6, "0");
+    ctx.font = "bold 40px -apple-system, Arial, sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(text, 24, 26);
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+    spr.scale.setScalar(span * 0.09);
+    return spr;
+  }
+
+  // ---- drag a palette tile onto a node ----
+  document.querySelectorAll(".pal-tile").forEach(tile => {
+    tile.addEventListener("dragstart", e => {
+      e.dataTransfer.setData("text/plain", (tile.dataset.kind || "lager") + ":" + (tile.dataset.type || "festlager"));
+      e.dataTransfer.effectAllowed = "copy";
+    });
+  });
+  function nodeTaken(id, skipLager, skipLoad) {
+    return lagers.some((l, k) => k !== skipLager && l.node === id)
+        || loads.some((l, k) => k !== skipLoad && l.node === id);
+  }
+  function attachDropTarget(dom) {
+    dom.addEventListener("dragover", e => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+    dom.addEventListener("drop", e => {
+      e.preventDefault();
+      if (!meshObj || !nodeIds.length) { msg.textContent = "Process a STEP file before placing anything."; return; }
+      const [kind, type] = (e.dataTransfer.getData("text/plain") || "lager:festlager").split(":");
+      const rect = dom.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+      raycaster.setFromCamera(ndc, camera);
+      const hit = raycaster.intersectObject(meshObj, false)[0];
+      if (!hit) { msg.textContent = "Drop the tile onto the mesh surface."; return; }
+      const n = nearestNode(hit.point);
+      if (!n) return;
+      if (nodeTaken(n.id, -1, -1)) { msg.textContent = "Node " + n.id + " already has a support or load."; return; }
+      if (kind === "load") {
+        loads.push({ type, node: n.id, xyz: n.xyz, dir: normalDir.slice(), mag: 1 });
+        renumberLoads(); rebuildMarkers(); renderLoadList();
+        msg.textContent = `${type} ${loads.length} placed on node ${n.id}.`;
+      } else {
+        lagers.push({ type, node: n.id, xyz: n.xyz });
+        renumberLagers(); rebuildMarkers(); renderLagerList();
+        msg.textContent = `Festlager ${lagers.length} placed on node ${n.id}.`;
+      }
+    });
+  }
+  function nearestNode(p) {
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < nodeIds.length; i++) {
+      const dx = nodeXYZ[3 * i] - p.x, dy = nodeXYZ[3 * i + 1] - p.y, dz = nodeXYZ[3 * i + 2] - p.z;
+      const d = dx * dx + dy * dy + dz * dz;
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best < 0 ? null : { id: nodeIds[best], xyz: [nodeXYZ[3 * best], nodeXYZ[3 * best + 1], nodeXYZ[3 * best + 2]] };
+  }
+  function renumberLagers() { lagers.forEach((l, i) => l.index = i + 1); }
+  function renumberLoads() { loads.forEach((l, i) => l.index = i + 1); }
+
+  function labelSprite(text, bg) {
+    const c = document.createElement("canvas"); c.width = c.height = 64;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = bg || "#c14a0c"; ctx.beginPath(); ctx.arc(32, 32, 30, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = "bold 34px -apple-system, Arial, sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(text), 32, 35);
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+    spr.scale.setScalar(span * 0.08);
+    return spr;
+  }
+  function rebuildMarkers() {
+    if (!markerGroup) return;
+    while (markerGroup.children.length) markerGroup.remove(markerGroup.children[0]);
+    const r = span * 0.012;
+    lagers.forEach(l => {
+      const g = new THREE.Group();
+      g.add(new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12),
+        new THREE.MeshBasicMaterial({ color: 0xc14a0c })));
+      g.add(labelSprite(l.index, "#c14a0c"));
+      g.position.set(l.xyz[0], l.xyz[1], l.xyz[2]);
+      markerGroup.add(g);
+    });
+    const alen = span * 0.16;
+    loads.forEach(l => {
+      const d = new THREE.Vector3(l.dir[0], l.dir[1], l.dir[2]);
+      if (d.lengthSq() === 0) d.set(0, 1, 0);
+      d.normalize();
+      const col = l.type === "force" ? 0x1f7a1f : 0x8a2fc1;   // force green, displacement purple
+      // arrow points TOWARD the node (tail is offset along -dir)
+      const tail = new THREE.Vector3(l.xyz[0], l.xyz[1], l.xyz[2]).addScaledVector(d, -alen);
+      const arr = new THREE.ArrowHelper(d, tail, alen, col, alen * 0.32, alen * 0.2);
+      markerGroup.add(arr);
+      const spr = labelSprite(l.index, l.type === "force" ? "#1f7a1f" : "#8a2fc1");
+      spr.position.set(l.xyz[0], l.xyz[1], l.xyz[2]);
+      markerGroup.add(spr);
+    });
+  }
+  const numBox = (cls, i, v, step) =>
+    `<input type="number" class="${cls}" data-i="${i}"${step ? ` step="${step}"` : ""} value="${v}" ` +
+    `style="width:66px; padding:3px 5px; font-size:12.5px;">`;
+  // X/Y/Z inputs stacked vertically in one cell (rows are too narrow for a line)
+  const xyzStack = (classes, i, vals, step) =>
+    `<div style="display:flex; flex-direction:column; gap:3px;">` +
+    vals.map((v, k) => `<span style="font-size:12px;">${"XYZ"[k]}&nbsp;${numBox(classes[k], i, v, step)}</span>`).join("") +
+    `</div>`;
+
+  // move a placed item to the node nearest a typed X/Y/Z (snaps to the grid)
+  function moveItem(list, i, x, y, z, redraw, skipLager, skipLoad) {
+    const n = nearestNode({ x: Number(x), y: Number(y), z: Number(z) });
+    if (!n) return;
+    if (nodeTaken(n.id, skipLager, skipLoad)) { msg.textContent = "Node " + n.id + " already has a support or load."; redraw(); return; }
+    list[i].node = n.id; list[i].xyz = n.xyz;
+    rebuildMarkers(); redraw();
+  }
+
+  function renderLagerList() {
+    if (!lagers.length) { lagerListBox.innerHTML = '<div class="hint">No supports placed yet.</div>'; return; }
+    const st = Number(spacingInput.value) || 1;
+    const rows = lagers.map((l, i) =>
+      `<tr><td>Lager ${l.index}</td><td>${l.type}</td>` +
+      `<td>${xyzStack(["lgx", "lgy", "lgz"], i, [l.xyz[0].toFixed(2), l.xyz[1].toFixed(2), l.xyz[2].toFixed(2)], st)}</td>` +
+      `<td><button type="button" class="lg-del" data-i="${i}" style="margin:0; padding:2px 8px; font-size:12px; background:#c14a0c;">remove</button></td></tr>`
+    ).join("");
+    lagerListBox.innerHTML =
+      `<table class="resultsTable"><thead><tr><th>Support</th><th>Type</th><th>Position (X, Y, Z)</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    lagerListBox.querySelectorAll(".lg-del").forEach(b => b.addEventListener("click", () => {
+      lagers.splice(Number(b.dataset.i), 1);
+      renumberLagers(); rebuildMarkers(); renderLagerList();
+    }));
+    lagerListBox.querySelectorAll(".lgx, .lgy, .lgz").forEach(inp => inp.addEventListener("change", () => {
+      const i = Number(inp.dataset.i), row = inp.closest("tr");
+      moveItem(lagers, i, row.querySelector(".lgx").value, row.querySelector(".lgy").value, row.querySelector(".lgz").value,
+        renderLagerList, i, -1);
+    }));
+  }
+
+  function renderLoadList() {
+    if (!loads.length) { loadListBox.innerHTML = '<div class="hint">No loads placed yet.</div>'; return; }
+    const st = Number(spacingInput.value) || 1;
+    const rows = loads.map((l, i) =>
+      `<tr><td>Load ${l.index}</td><td>${l.type === "force" ? "force (N)" : "displacement (mm)"}</td>` +
+      `<td>${xyzStack(["ldx", "ldy", "ldz"], i, [l.xyz[0].toFixed(2), l.xyz[1].toFixed(2), l.xyz[2].toFixed(2)], st)}</td>` +
+      `<td>${xyzStack(["ldu", "ldv", "ldw"], i, [l.dir[0], l.dir[1], l.dir[2]])}</td>` +
+      `<td>${numBox("ldm", i, l.mag)}</td>` +
+      `<td><button type="button" class="ld-del" data-i="${i}" style="margin:0; padding:2px 8px; font-size:12px; background:${l.type === "force" ? "#1f7a1f" : "#8a2fc1"};">remove</button></td></tr>`
+    ).join("");
+    loadListBox.innerHTML =
+      `<table class="resultsTable"><thead><tr><th>Load</th><th>Type</th><th>Position (X, Y, Z)</th><th>Direction (X, Y, Z)</th><th>Magnitude</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    loadListBox.querySelectorAll(".ld-del").forEach(b => b.addEventListener("click", () => {
+      loads.splice(Number(b.dataset.i), 1);
+      renumberLoads(); rebuildMarkers(); renderLoadList();
+    }));
+    loadListBox.querySelectorAll(".ldx, .ldy, .ldz").forEach(inp => inp.addEventListener("change", () => {
+      const i = Number(inp.dataset.i), row = inp.closest("tr");
+      moveItem(loads, i, row.querySelector(".ldx").value, row.querySelector(".ldy").value, row.querySelector(".ldz").value,
+        renderLoadList, -1, i);
+    }));
+    loadListBox.querySelectorAll(".ldu, .ldv, .ldw, .ldm").forEach(inp => inp.addEventListener("change", () => {
+      const i = Number(inp.dataset.i), row = inp.closest("tr");
+      loads[i].dir = [
+        Number(row.querySelector(".ldu").value) || 0,
+        Number(row.querySelector(".ldv").value) || 0,
+        Number(row.querySelector(".ldw").value) || 0,
+      ];
+      loads[i].mag = Number(row.querySelector(".ldm").value) || 0;
+      rebuildMarkers();
+    }));
+  }
+
+  // ---- expose the on-page model for the .inp preview and the sweep ----
+  window.femCollectModel = function () {
+    const v = id => { const el = document.getElementById(id); return el ? el.value : ""; };
+    return {
+      source_path: meshSource,
+      path: meshSource,
+      spacing: v("stepSpacing"),
+      material_name: v("matName"),
+      constants: {
+        E1: v("matE1"), E2: v("matE2"), E3: v("matE3"),
+        nu12: v("matNu12"), nu13: v("matNu13"), nu23: v("matNu23"),
+        G12: v("matG12"), G13: v("matG13"), G23: v("matG23"),
+      },
+      thickness: v("layupThk"),
+      symmetric: !!(document.getElementById("layupSym") || {}).checked,
+      lagers: lagers.map(l => ({ index: l.index, node: l.node, type: l.type })),
+      loads: loads.map(l => ({ index: l.index, node: l.node, type: l.type, dir: l.dir, mag: l.mag })),
+    };
+  };
+
+  // ---- full .inp preview ----
+  fullInpBtn.addEventListener("click", async () => {
+    if (!meshSource) { fullInpMsg.textContent = "Process a STEP file first."; return; }
+    if (!lagers.length) { fullInpMsg.textContent = "Place at least one Festlager first."; return; }
+    const thk = (document.getElementById("layupThk") || {}).value;
+    if (!String(thk).trim() || !(Number(thk) > 0)) { fullInpMsg.textContent = "Enter the ply thickness in the Layup section first."; return; }
+    const m = window.femCollectModel();
+    m.layup = (document.getElementById("layupAngles") || {}).value || "";
+    m.nlgeom = true;
+    fullInpMsg.textContent = "Assembling…";
+    try {
+      const res = await fetch("/inp_preview", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(m),
+      });
+      const data = await res.json();
+      if (!data.ok) { fullInpMsg.innerHTML = `<span class="row-error">${data.error}</span>`; fullInpOut.style.display = "none"; return; }
+      fullInpMsg.textContent = `${data.num_nodes} nodes, ${data.num_elements} elements`;
+      fullInpOut.textContent = data.inp;
+      fullInpOut.style.display = "block";
+    } catch (err) {
+      fullInpMsg.innerHTML = `<span class="row-error">${String(err)}</span>`;
+    }
+  });
 })();
 </script>
 
@@ -599,8 +942,6 @@ sweepForm.addEventListener("submit", async (e) => {
   const msg = document.getElementById("layupMsg");
   const out = document.getElementById("layupBlock");
   const matName = document.getElementById("matName");
-  const layupMat = document.getElementById("layupMat");
-  if (matName && layupMat) layupMat.value = matName.value;
 
   btn.addEventListener("click", async () => {
     msg.textContent = "";
@@ -612,8 +953,7 @@ sweepForm.addEventListener("submit", async (e) => {
           layup: document.getElementById("layupAngles").value,
           symmetric: document.getElementById("layupSym").checked,
           thickness: document.getElementById("layupThk").value,
-          material: layupMat.value,
-          elset: document.getElementById("layupElset").value,
+          material: matName ? matName.value : "",
         }),
       });
       const data = await res.json();
@@ -631,5 +971,88 @@ sweepForm.addEventListener("submit", async (e) => {
   });
 })();
 </script>
+
+<!-- ===== Simulate: one CalculiX run of the assembled model ===== -->
+<script>
+(function () {
+  const btn = document.getElementById("simBtn");
+  if (!btn) return;
+  const msg = document.getElementById("simMsg");
+  const logBox = document.getElementById("simLog");
+  let jobId = null, timer = null;
+
+  btn.addEventListener("click", async () => {
+    if (!window.femCollectModel) return;
+    const m = window.femCollectModel();
+    if (!m.source_path) { msg.textContent = "Process a STEP file first."; return; }
+    if (!m.lagers.length) { msg.textContent = "Place at least one Festlager first."; return; }
+    const thk = (document.getElementById("layupThk") || {}).value;
+    if (!String(thk).trim() || !(Number(thk) > 0)) { msg.textContent = "Enter the ply thickness in the Layup section first."; return; }
+    const layup = ((document.getElementById("layupAngles") || {}).value || "").trim();
+    if (!layup) { msg.textContent = "Enter the ply angles in the Layup section first."; return; }
+    const out = document.getElementById("sim_output_folder").value.trim();
+    if (!out) { msg.textContent = "Enter an output folder."; return; }
+
+    m.layup = layup;
+    m.nlgeom = true;
+    m.output_folder = out;
+    m.ccx_exe = document.getElementById("sim_ccx_exe").value;
+
+    btn.disabled = true;
+    logBox.style.display = "none";
+    document.getElementById("simResults").innerHTML = "";
+    msg.textContent = "Starting CalculiX…";
+    try {
+      const res = await fetch("/simulate_start", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(m),
+      });
+      const data = await res.json();
+      if (!data.ok) { msg.innerHTML = `<span class="row-error">${data.error}</span>`; btn.disabled = false; return; }
+      jobId = data.job_id;
+      timer = setInterval(poll, 1500);
+    } catch (err) {
+      msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
+      btn.disabled = false;
+    }
+  });
+
+  async function poll() {
+    try {
+      const res = await fetch("/simulate_status/" + jobId);
+      const data = await res.json();
+      if (!data.ok) { clearInterval(timer); btn.disabled = false; msg.innerHTML = `<span class="row-error">${data.error}</span>`; return; }
+      if (data.log_tail) { logBox.textContent = data.log_tail; logBox.style.display = "block"; }
+      if (!data.done) { msg.textContent = "Running CalculiX…"; return; }
+      clearInterval(timer);
+      btn.disabled = false;
+      if (data.error) { msg.innerHTML = `<span class="row-error">${data.error}</span>`; return; }
+      msg.textContent = (data.converged ? "Converged" : "Finished (check log)") +
+        ` — result files in ${data.output_folder}`;
+      renderSimResults(data.rf_by_lager);
+    } catch (err) {
+      clearInterval(timer);
+      btn.disabled = false;
+      msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
+    }
+  }
+
+  function renderSimResults(rf) {
+    const box = document.getElementById("simResults");
+    const ids = Object.keys(rf || {}).sort((a, b) => Number(a) - Number(b));
+    if (!ids.length) { box.innerHTML = ""; return; }
+    const rows = ids.map(id => {
+      const c = rf[id] || [0, 0, 0];
+      const tot = Math.sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+      return `<tr><td>Lager ${id}</td><td>${c[0].toFixed(4)}</td><td>${c[1].toFixed(4)}</td>` +
+             `<td>${c[2].toFixed(4)}</td><td>${tot.toFixed(4)}</td></tr>`;
+    }).join("");
+    box.innerHTML =
+      `<table class="resultsTable"><thead><tr>` +
+      `<th>Support</th><th>Force X (N)</th><th>Force Y (N)</th><th>Force Z (N)</th><th>Total force (N)</th>` +
+      `</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+})();
+</script>
+
 </body>
 </html>

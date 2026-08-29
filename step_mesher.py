@@ -167,3 +167,108 @@ def _render_geometry(nodes, elements, element_type):
         edge_flat += [a, b]
 
     return {"positions": positions, "tris": tris, "edges": edge_flat}
+
+
+def _bounding_box(step_path):
+    if not os.path.isfile(step_path):
+        raise StepMeshError("No STEP file at: " + step_path)
+    gmsh.initialize(interruptible=False)
+    try:
+        gmsh.option.setNumber("General.Terminal", 0)
+        gmsh.model.add("bbox")
+        try:
+            gmsh.model.occ.importShapes(step_path)
+            gmsh.model.occ.synchronize()
+        except Exception as e:
+            raise StepMeshError("gmsh could not read the STEP file: " + str(e))
+        return gmsh.model.getBoundingBox(-1, -1)
+    finally:
+        gmsh.finalize()
+
+
+def structured_grid(step_path, spacing=1.0):
+    """A regular S8R (8-node serendipity quad) mesh over the STEP's bounding
+    box, treated as a flat rectangle. `spacing` is the node spacing (mm) in
+    both in-plane directions; the thin axis (smallest bbox extent) is dropped
+    to a single plane. Returns the same dict shape as mesh_step, with
+    element_type 'S8R' and the full `nodes` table (needed to drop supports
+    onto exact nodes).
+    """
+    try:
+        spacing = float(spacing)
+    except (TypeError, ValueError):
+        raise StepMeshError("Node spacing must be a number.")
+    if spacing <= 0:
+        raise StepMeshError("Node spacing must be positive.")
+
+    xmin, ymin, zmin, xmax, ymax, zmax = _bounding_box(step_path)
+    lo = [xmin, ymin, zmin]
+    ext = [xmax - xmin, ymax - ymin, zmax - zmin]
+    flat = ext.index(min(ext))            # the through-thickness axis
+    ip = [a for a in (0, 1, 2) if a != flat]   # the two in-plane axes
+    w0 = lo[flat] + ext[flat] / 2.0
+
+    Lu, Lv = ext[ip[0]], ext[ip[1]]
+    if Lu <= 0 or Lv <= 0:
+        raise StepMeshError("The STEP bounding box is degenerate in-plane.")
+    ncu = max(1, round(Lu / spacing))
+    ncv = max(1, round(Lv / spacing))
+    # every corner + edge-midside node is sent to the browser as JSON, so keep
+    # the total node count sane
+    if (ncu + 1) * (ncv + 1) > 120000:
+        raise StepMeshError(
+            f"{ncu}x{ncv} cells (~{3 * ncu * ncv // 1000}k nodes) is too fine here "
+            f"-- increase the node spacing."
+        )
+    du, dv = Lu / ncu, Lv / ncv
+    ou, ov = lo[ip[0]], lo[ip[1]]
+
+    def xyz(u, v):
+        p = [0.0, 0.0, 0.0]
+        p[ip[0]] = ou + u
+        p[ip[1]] = ov + v
+        p[flat] = w0
+        return p
+
+    nodes = {}
+    nid = [0]
+
+    def add(u, v):
+        nid[0] += 1
+        nodes[nid[0]] = xyz(u, v)
+        return nid[0]
+
+    corner = {}
+    for j in range(ncv + 1):
+        for i in range(ncu + 1):
+            corner[(i, j)] = add(i * du, j * dv)
+    umid = {}
+    for j in range(ncv + 1):
+        for i in range(ncu):
+            umid[(i, j)] = add((i + 0.5) * du, j * dv)
+    vmid = {}
+    for j in range(ncv):
+        for i in range(ncu + 1):
+            vmid[(i, j)] = add(i * du, (j + 0.5) * dv)
+
+    # CalculiX S8 order: 4 corners CCW, then the 4 edge mid-side nodes
+    elements = []
+    for j in range(ncv):
+        for i in range(ncu):
+            elements.append([
+                corner[(i, j)], corner[(i + 1, j)], corner[(i + 1, j + 1)], corner[(i, j + 1)],
+                umid[(i, j)], vmid[(i + 1, j)], umid[(i, j + 1)], vmid[(i, j)],
+            ])
+
+    return {
+        "element_type": "S8R",
+        "element_desc": "8-node quad, 2nd order, reduced (structured grid)",
+        "spacing": spacing,
+        "cells": [ncu, ncv],
+        "num_nodes": len(nodes),
+        "num_elements": len(elements),
+        "bbox": [xmin, ymin, zmin, xmax, ymax, zmax],
+        "nodes": nodes,
+        "elements": elements,
+        "render": _render_geometry(nodes, elements, "S8R"),
+    }
