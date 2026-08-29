@@ -161,43 +161,45 @@
     return copy;
   }
 
-  // Backend emits one flat row per (combo, ply, node): {combo, ply, angle, node_id, rf, error}.
-  // Collapse to one row per combination: a column per ply angle, a column per node's RF.
+  // Backend emits one record per combination:
+  //   { combo, angles: [a1, a2, ...], rf_by_node: { "201": rf, "481": rf }, error }
+  // Flatten to table rows: one column per ply angle, one column per node's RF.
   function buildGroupedRows(results) {
-    const nodeIds = [...new Set(
-      results.filter(r => r.node_id !== null && r.node_id !== undefined).map(r => r.node_id)
-    )].sort((a, b) => Number(a) - Number(b));
-    const plyNums = results.filter(r => r.ply !== null && r.ply !== undefined).map(r => Number(r.ply));
-    const plyCount = plyNums.length ? Math.max(...plyNums) : 1;
+    let plyCount = 1;
+    const nodeIds = new Set();
+    for (const r of results) {
+      if (Array.isArray(r.angles)) plyCount = Math.max(plyCount, r.angles.length);
+      if (r.rf_by_node) Object.keys(r.rf_by_node).forEach(nid => nodeIds.add(nid));
+    }
+    const nodeList = [...nodeIds].sort((a, b) => Number(a) - Number(b));
 
     const map = new Map();
     for (const r of results) {
-      if (!map.has(r.combo)) {
-        const row = { combo: r.combo, error: null };
-        for (let p = 1; p <= plyCount; p++) row["ply_" + p] = null;
-        for (const nid of nodeIds) row["node_" + nid] = null;
-        map.set(r.combo, row);
+      const row = { combo: r.combo, error: r.error || null };
+      for (let p = 1; p <= plyCount; p++) {
+        row["ply_" + p] = (Array.isArray(r.angles) && r.angles.length >= p) ? r.angles[p - 1] : null;
       }
-      const row = map.get(r.combo);
-      if (r.error) { row.error = r.error; continue; }
-      if (r.ply !== null && r.ply !== undefined) row["ply_" + r.ply] = r.angle;
-      if (r.node_id !== null && r.node_id !== undefined) row["node_" + r.node_id] = r.rf;
+      for (const nid of nodeList) {
+        row["node_" + nid] = (r.rf_by_node && nid in r.rf_by_node) ? r.rf_by_node[nid] : null;
+      }
+      map.set(r.combo, row);
     }
-    return { rows: Array.from(map.values()), plyCount, nodeIds };
+    return { rows: Array.from(map.values()), plyCount, nodeIds: nodeList };
   }
 
   function renderSweepTable() {
     const { rows: grouped, plyCount, nodeIds } = buildGroupedRows(sweepResults);
     const sorted = sortResults(grouped, sweepSort.key, sweepSort.dir);
     const arrow = (key) => sweepSort.key === key ? (sweepSort.dir === "asc" ? "\u25b2" : "\u25bc") : "";
-    const totalCols = 1 + plyCount + nodeIds.length;
+    const errorColspan = Math.max(1, nodeIds.length);
 
     let rows = sorted.map(r => {
-      if (r.error) {
-        return `<tr class="row-error"><td>${escapeHtml(r.combo)}</td><td colspan="${totalCols - 1}">${escapeHtml(r.error)}</td></tr>`;
-      }
       let cells = `<td>${escapeHtml(r.combo)}</td>`;
       for (let p = 1; p <= plyCount; p++) cells += `<td>${fmtNum(r["ply_" + p], 2)}&deg;</td>`;
+      if (r.error) {
+        cells += `<td class="row-error" colspan="${errorColspan}">${escapeHtml(r.error)}</td>`;
+        return `<tr>${cells}</tr>`;
+      }
       for (const nid of nodeIds) cells += `<td>${fmtNum(r["node_" + nid], 4)}</td>`;
       return `<tr>${cells}</tr>`;
     }).join("");

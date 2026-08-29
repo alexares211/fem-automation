@@ -21,9 +21,9 @@ def angle_range(start, end, step):
         raise PlyEditError("Step must be a positive number.")
     if end < start:
         start, end = end, start
-    n_steps = int(round((end - start) / step))
+    n_steps = int(math.floor((end - start) / step + 1e-9))
     values = [round(start + i * step, 6) for i in range(n_steps + 1)]
-    if abs(values[-1] - end) > 1e-6:
+    if not values or abs(values[-1] - end) > 1e-6:
         values.append(round(end, 6))
     return values
 

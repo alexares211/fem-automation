@@ -63,12 +63,14 @@ def read_reaction_force(dat_path, nset_name):
     with open(dat_path, "r", errors="ignore") as f:
         text = f.read()
 
+    headers = list(_HEADER_RE.finditer(text))
     matches = []
-    for m in _HEADER_RE.finditer(text):
+    for idx, m in enumerate(headers):
         set_name, time_str = m.group(1), m.group(2)
         if set_name.strip().lower() != nset_name.strip().lower():
             continue
-        body_text = text[m.end():m.end() + 4000]
+        body_end = headers[idx + 1].start() if idx + 1 < len(headers) else len(text)
+        body_text = text[m.end():body_end]
         rows = _parse_body_rows(body_text)
         if rows:
             matches.append((float(time_str), rows))
