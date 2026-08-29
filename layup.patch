@@ -1,0 +1,203 @@
+diff --git a/app.py b/app.py
+index 8a5ff93..c26066e 100644
+--- a/app.py
++++ b/app.py
+@@ -10,7 +10,7 @@ from ply_orientation import generate_inp, angle_range, PlyEditError
+ from ccx_runner import run_ccx_blocking
+ from dat_parser import read_reaction_force, DatParseError
+ from step_mesher import mesh_step, StepMeshError, ELEMENT_TYPES
+-from inp_writer import material_block, InpWriteError
++from inp_writer import material_block, section_block, parse_layup, InpWriteError
+ 
+ DEFAULT_CCX_EXE = r"D:\PrePoMax v2.5.0\Solver\ccx_dynamic.exe"
+ MAX_COMBOS = 4028
+@@ -85,6 +85,22 @@ def material_block_route():
+     return jsonify({"ok": True, "block": block})
+ 
+ 
++@app.route("/section_block", methods=["POST"])
++def section_block_route():
++    """Format the layup inputs into *Orientation + *Shell section text (preview)."""
++    data = request.get_json(silent=True) or {}
++    symmetric = bool(data.get("symmetric"))
++    try:
++        angles = parse_layup(data.get("layup"))
++        block = section_block(
++            data.get("elset"), data.get("material"), angles,
++            data.get("thickness"), symmetric,
++        )
++    except InpWriteError as e:
++        return jsonify({"ok": False, "error": str(e)})
++    return jsonify({"ok": True, "block": block, "num_plies": len(angles) * (2 if symmetric else 1)})
++
++
+ @app.route("/stop/<job_id>", methods=["POST"])
+ def stop(job_id):
+     with JOBS_LOCK:
+diff --git a/inp_writer.py b/inp_writer.py
+index 3858490..58dfc37 100644
+--- a/inp_writer.py
++++ b/inp_writer.py
+@@ -1,8 +1,9 @@
+ """Assemble CalculiX .inp keyword blocks from the browser's inputs.
+ 
+-Starts with the material block. The mesh block, composite section, supports
+-(*Nset / *Boundary) and the full-file writer come next.
++Has the material block and the composite section (layup) block. The mesh
++block, supports (*Nset / *Boundary) and the full-file writer come next.
+ """
++from ply_orientation import orientation_vectors, format_vector_line
+ 
+ # CalculiX *ELASTIC, TYPE=ENGINEERING CONSTANTS wants exactly 8 values on the
+ # first data line and the 9th (G23) alone on a continuation line. All 9 on one
+@@ -63,3 +64,65 @@ def material_block(name, constants):
+         f"{line1}\n"
+         f"{line2}"
+     )
++
++
++def parse_layup(text):
++    """'0/45/-45/90' or '0, 45, -45, 90' -> [0.0, 45.0, -45.0, 90.0]."""
++    if not str(text or "").strip():
++        raise InpWriteError("Enter at least one ply angle.")
++    parts = [p.strip() for chunk in str(text).split("/") for p in chunk.split(",")]
++    parts = [p for p in parts if p]
++    try:
++        angles = [float(p) for p in parts]
++    except ValueError:
++        raise InpWriteError("Layup must be numbers separated by '/' or ','.")
++    if not angles:
++        raise InpWriteError("Enter at least one ply angle.")
++    return angles
++
++
++def _check_name(label, name):
++    name = (name or "").strip()
++    if not name:
++        raise InpWriteError(f"{label} name is required.")
++    if any(c in name for c in ", \t\n"):
++        raise InpWriteError(f"{label} name must not contain spaces or commas.")
++    return name
++
++
++def section_block(elset, material, angles, thickness, symmetric=False):
++    """Return one uniquely-named '*Orientation' per ply plus the
++    '*Shell section, Elset=..., Composite' card and its ply lines
++    (no trailing newline). Ply names are AutoPly1, AutoPly2, ... to match
++    ply_orientation.generate_inp.
++    """
++    elset = _check_name("Element set", elset)
++    material = _check_name("Material", material)
++
++    try:
++        t = float(thickness)
++    except (TypeError, ValueError):
++        raise InpWriteError("Ply thickness must be a number.")
++    if t <= 0:
++        raise InpWriteError("Ply thickness must be positive.")
++
++    stack = list(angles)
++    if symmetric:
++        stack = stack + stack[::-1]
++    if not stack:
++        raise InpWriteError("Enter at least one ply angle.")
++
++    orient_blocks, ply_lines = [], []
++    for i, angle in enumerate(stack, start=1):
++        name = f"AutoPly{i}"
++        a, b = orientation_vectors(float(angle))
++        orient_blocks.append(
++            f"*Orientation, Name={name}, System=Rectangular\n{format_vector_line(a, b)}"
++        )
++        ply_lines.append(f"{_fmt(t)},,{material},{name}")
++
++    return (
++        "\n".join(orient_blocks)
++        + f"\n*Shell section, Elset={elset}, Composite\n"
++        + "\n".join(ply_lines)
++    )
+diff --git a/templates/index.html b/templates/index.html
+index d3061b5..5f975d6 100644
+--- a/templates/index.html
++++ b/templates/index.html
+@@ -108,6 +108,32 @@
+       <pre id="matBlock" style="display:none;"></pre>
+     </section>
+ 
++    <section id="layupSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
++      <h1 style="margin-bottom:4px;">Layup</h1>
++      <p class="sub">Fibre angle per ply &mdash; written as one uniquely-named <code>*Orientation</code> per ply plus a <code>*Shell section, &hellip;, Composite</code> card.</p>
++
++      <label for="layupAngles">Ply angles (&deg;, from ply 1 outward)</label>
++      <input type="text" id="layupAngles" value="30/-30" placeholder="e.g. 0/45/-45/90">
++      <div class="hint">Separate with "/" or ",". Number of plies = number of angles.</div>
++
++      <div style="margin-top:12px;">
++        <label style="display:inline; font-weight:400;">
++          <input type="checkbox" id="layupSym"> Symmetric &mdash; mirror the list (0/45/90 &rarr; 0/45/90/90/45/0)
++        </label>
++      </div>
++
++      <div class="row" style="margin-top:14px;">
++        <div><label for="layupThk">Ply thickness</label><input type="number" id="layupThk" step="any" value="0.184"></div>
++        <div><label for="layupMat">Material name</label><input type="text" id="layupMat" value="AS4_8552"></div>
++        <div><label for="layupElset">Element set</label><input type="text" id="layupElset" value="Eplate"></div>
++      </div>
++      <div class="hint">Material should match the Material section above. Element set is the one the mesh step creates (default "Eplate").</div>
++
++      <button type="button" id="layupPreviewBtn">Preview keyword block</button>
++      <div id="layupMsg" class="progress-line"></div>
++      <pre id="layupBlock" style="display:none;"></pre>
++    </section>
++
+     <h1>Angle Sweep</h1>
+     <p class="sub">Tries every combination of per-ply angles from the range, solves each layup, and records the reaction force at the support.</p>
+ 
+@@ -564,5 +590,46 @@ sweepForm.addEventListener("submit", async (e) => {
+   });
+ })();
+ </script>
++
++<!-- ===== Layup keyword-block preview ===== -->
++<script>
++(function () {
++  const btn = document.getElementById("layupPreviewBtn");
++  if (!btn) return;
++  const msg = document.getElementById("layupMsg");
++  const out = document.getElementById("layupBlock");
++  const matName = document.getElementById("matName");
++  const layupMat = document.getElementById("layupMat");
++  if (matName && layupMat) layupMat.value = matName.value;
++
++  btn.addEventListener("click", async () => {
++    msg.textContent = "";
++    try {
++      const res = await fetch("/section_block", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({
++          layup: document.getElementById("layupAngles").value,
++          symmetric: document.getElementById("layupSym").checked,
++          thickness: document.getElementById("layupThk").value,
++          material: layupMat.value,
++          elset: document.getElementById("layupElset").value,
++        }),
++      });
++      const data = await res.json();
++      if (!data.ok) {
++        msg.innerHTML = `<span class="row-error">${data.error}</span>`;
++        out.style.display = "none";
++        return;
++      }
++      msg.textContent = `${data.num_plies} plies`;
++      out.textContent = data.block;
++      out.style.display = "block";
++    } catch (err) {
++      msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
++    }
++  });
++})();
++</script>
+ </body>
+ </html>
+\ No newline at end of file

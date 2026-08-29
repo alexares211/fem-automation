@@ -9,19 +9,96 @@ from flask import Flask, render_template, request, jsonify
 from ply_orientation import generate_inp, angle_range, PlyEditError
 from ccx_runner import run_ccx_blocking
 from dat_parser import read_reaction_force, DatParseError
+from step_mesher import mesh_step, StepMeshError, ELEMENT_TYPES
+from inp_writer import material_block, section_block, parse_layup, InpWriteError
 
 DEFAULT_CCX_EXE = r"D:\PrePoMax v2.5.0\Solver\ccx_dynamic.exe"
 MAX_COMBOS = 4028
+STEP_UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 
 app = Flask(__name__)
 
 JOBS = {}
 JOBS_LOCK = threading.Lock()
+GMSH_LOCK = threading.Lock()  # gmsh keeps global state -> serialise meshing calls
 
 
 @app.route("/")
 def index():
     return render_template("index.html", default_ccx_exe=DEFAULT_CCX_EXE)
+
+
+@app.route("/element_types")
+def element_types():
+    return jsonify(
+        {"ok": True, "types": [
+            {"name": name, "desc": cfg["desc"]} for name, cfg in ELEMENT_TYPES.items()
+        ]}
+    )
+
+
+@app.route("/process_step", methods=["POST"])
+def process_step():
+    """Mesh a STEP file and return geometry for the 3D viewport.
+
+    Accepts either a dropped/uploaded file (multipart 'step_file') or a
+    server-side path (JSON 'path'); 'element_type' and 'target_size' come
+    alongside as form fields or JSON keys.
+    """
+    uploaded = request.files.get("step_file")
+    if uploaded is not None:
+        element_type = request.form.get("element_type", "S6")
+        target_size = request.form.get("target_size", "")
+        os.makedirs(STEP_UPLOAD_DIR, exist_ok=True)
+        step_path = os.path.join(STEP_UPLOAD_DIR, os.path.basename(uploaded.filename or "upload.step"))
+        uploaded.save(step_path)
+    else:
+        data = request.get_json(silent=True) or {}
+        element_type = data.get("element_type", "S6")
+        target_size = data.get("target_size", "")
+        step_path = (data.get("path") or "").strip().strip('"')
+        if not step_path:
+            return jsonify({"ok": False, "error": "Provide a STEP file path or drop a file."})
+
+    try:
+        with GMSH_LOCK:
+            result = mesh_step(step_path, element_type=element_type, target_size=target_size)
+    except StepMeshError as e:
+        return jsonify({"ok": False, "error": str(e)})
+    except Exception as e:  # gmsh can raise bare exceptions on bad input
+        return jsonify({"ok": False, "error": "Meshing failed: " + str(e)})
+
+    # keep the payload light -- the raw node/element tables aren't needed until
+    # .inp generation is wired up
+    payload = {k: v for k, v in result.items() if k not in ("nodes", "elements")}
+    return jsonify({"ok": True, **payload})
+
+
+@app.route("/material_block", methods=["POST"])
+def material_block_route():
+    """Format the material inputs into *Material / *Elastic keyword text (preview)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        block = material_block(data.get("name"), data.get("constants"))
+    except InpWriteError as e:
+        return jsonify({"ok": False, "error": str(e)})
+    return jsonify({"ok": True, "block": block})
+
+
+@app.route("/section_block", methods=["POST"])
+def section_block_route():
+    """Format the layup inputs into *Orientation + *Shell section text (preview)."""
+    data = request.get_json(silent=True) or {}
+    symmetric = bool(data.get("symmetric"))
+    try:
+        angles = parse_layup(data.get("layup"))
+        block = section_block(
+            data.get("elset"), data.get("material"), angles,
+            data.get("thickness"), symmetric,
+        )
+    except InpWriteError as e:
+        return jsonify({"ok": False, "error": str(e)})
+    return jsonify({"ok": True, "block": block, "num_plies": len(angles) * (2 if symmetric else 1)})
 
 
 @app.route("/stop/<job_id>", methods=["POST"])

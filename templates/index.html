@@ -45,6 +45,95 @@
   </style>
   </head>
   <body>
+    <section id="stepSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
+      <h1 style="margin-bottom:4px;">STEP &rarr; Mesh</h1>
+      <p class="sub">Drop a STEP file (or paste its path), choose the shell element, and generate a surface mesh to preview.</p>
+
+      <div id="stepDrop" style="border:2px dashed #c9c4bd; border-radius:6px; padding:16px; text-align:center; color:#5b6462; font-size:13px; cursor:pointer; background:#faf9f7;">
+        Drop a <strong>.step / .stp</strong> file here, or click to choose
+        <input type="file" id="stepFile" accept=".step,.stp,.STEP,.STP" style="display:none;">
+      </div>
+
+      <label for="stepPath">&hellip; or paste the file path</label>
+      <input type="text" id="stepPath" placeholder="D:\path\to\part.step">
+
+      <div class="row" style="margin-top:14px;">
+        <div>
+          <label for="stepElemType">Shell element</label>
+          <select id="stepElemType" style="width:100%; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:4px;"></select>
+          <div class="hint">S6 / S8R are the types CalculiX accepts for a composite section. S3 / S4 are first-order preview only.</div>
+        </div>
+        <div>
+          <label for="stepSize">Target element size</label>
+          <input type="number" id="stepSize" step="any" min="0" placeholder="auto (~1/25 of part size)">
+          <div class="hint">Blank = automatic. Model units (mm for the TorsionPlatte template).</div>
+        </div>
+      </div>
+
+      <button type="button" id="stepBtn">Process STEP file</button>
+
+      <div id="stepMsg" class="progress-line"></div>
+      <div id="stepViewport" style="width:100%; height:440px; margin-top:10px; border:1px solid #ddd; border-radius:6px; background:#ffffff; position:relative; overflow:hidden;">
+        <div id="stepViewHint" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#7c8a86; font-size:13px;">no mesh yet</div>
+      </div>
+      <div class="hint">Drag to rotate &middot; scroll to zoom &middot; right-drag (or Shift+drag) to pan</div>
+    </section>
+
+    <section id="materialSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
+      <h1 style="margin-bottom:4px;">Material</h1>
+      <p class="sub">Orthotropic composite ply properties &mdash; written as <code>*Material</code> + <code>*Elastic, Type=Engineering constants</code>.</p>
+
+      <label for="matName">Material name</label>
+      <input type="text" id="matName" value="AS4_8552">
+
+      <div class="row" style="margin-top:14px;">
+        <div><label for="matE1">E1</label><input type="number" id="matE1" step="any" value="135100"></div>
+        <div><label for="matE2">E2</label><input type="number" id="matE2" step="any" value="9600"></div>
+        <div><label for="matE3">E3</label><input type="number" id="matE3" step="any" value="9600"></div>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <div><label for="matNu12">&nu;12</label><input type="number" id="matNu12" step="any" value="0.32"></div>
+        <div><label for="matNu13">&nu;13</label><input type="number" id="matNu13" step="any" value="0.32"></div>
+        <div><label for="matNu23">&nu;23</label><input type="number" id="matNu23" step="any" value="0.487"></div>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <div><label for="matG12">G12</label><input type="number" id="matG12" step="any" value="5300"></div>
+        <div><label for="matG13">G13</label><input type="number" id="matG13" step="any" value="5300"></div>
+        <div><label for="matG23">G23</label><input type="number" id="matG23" step="any" value="3228.6"></div>
+      </div>
+      <div class="hint">Model units (moduli in N/mm&sup2; = MPa for the TorsionPlatte template). CalculiX order: E1, E2, E3, &nu;12, &nu;13, &nu;23, G12, G13 on line 1, G23 on its own line.</div>
+
+      <button type="button" id="matPreviewBtn">Preview keyword block</button>
+      <div id="matMsg" class="progress-line"></div>
+      <pre id="matBlock" style="display:none;"></pre>
+    </section>
+
+    <section id="layupSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
+      <h1 style="margin-bottom:4px;">Layup</h1>
+      <p class="sub">Fibre angle per ply &mdash; written as one uniquely-named <code>*Orientation</code> per ply plus a <code>*Shell section, &hellip;, Composite</code> card.</p>
+
+      <label for="layupAngles">Ply angles (&deg;, from ply 1 outward)</label>
+      <input type="text" id="layupAngles" value="30/-30" placeholder="e.g. 0/45/-45/90">
+      <div class="hint">Separate with "/" or ",". Number of plies = number of angles.</div>
+
+      <div style="margin-top:12px;">
+        <label style="display:inline; font-weight:400;">
+          <input type="checkbox" id="layupSym"> Symmetric &mdash; mirror the list (0/45/90 &rarr; 0/45/90/90/45/0)
+        </label>
+      </div>
+
+      <div class="row" style="margin-top:14px;">
+        <div><label for="layupThk">Ply thickness</label><input type="number" id="layupThk" step="any" value="0.184"></div>
+        <div><label for="layupMat">Material name</label><input type="text" id="layupMat" value="AS4_8552"></div>
+        <div><label for="layupElset">Element set</label><input type="text" id="layupElset" value="Eplate"></div>
+      </div>
+      <div class="hint">Material should match the Material section above. Element set is the one the mesh step creates (default "Eplate").</div>
+
+      <button type="button" id="layupPreviewBtn">Preview keyword block</button>
+      <div id="layupMsg" class="progress-line"></div>
+      <pre id="layupBlock" style="display:none;"></pre>
+    </section>
+
     <h1>Angle Sweep</h1>
     <p class="sub">Tries every combination of per-ply angles from the range, solves each layup, and records the reaction force at the support.</p>
 
@@ -303,6 +392,244 @@ sweepForm.addEventListener("submit", async (e) => {
     sweepProgress.innerHTML = `<span class="row-error">${escapeHtml(String(err))}</span>`;
   }
 });
+</script>
+
+<!-- ===== STEP -> Mesh viewport ===== -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  const dz = document.getElementById("stepDrop");
+  const fileInput = document.getElementById("stepFile");
+  const pathInput = document.getElementById("stepPath");
+  const elemSel = document.getElementById("stepElemType");
+  const sizeInput = document.getElementById("stepSize");
+  const btn = document.getElementById("stepBtn");
+  const msg = document.getElementById("stepMsg");
+  const viewport = document.getElementById("stepViewport");
+  const viewHint = document.getElementById("stepViewHint");
+
+  let pickedFile = null;
+
+  fetch("/element_types").then(r => r.json()).then(d => {
+    if (!d.ok) throw 0;
+    elemSel.innerHTML = d.types
+      .map(t => `<option value="${t.name}">${t.name} &mdash; ${t.desc}</option>`).join("");
+  }).catch(() => {
+    elemSel.innerHTML = ["S6", "S8R", "S3", "S4"].map(n => `<option>${n}</option>`).join("");
+  });
+
+  dz.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files.length) { pickedFile = fileInput.files[0]; pathInput.value = ""; showPicked(); }
+  });
+  ["dragover", "dragenter"].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault(); dz.style.background = "#eef3ef"; dz.style.borderColor = "#8fae9b";
+  }));
+  ["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault(); dz.style.background = "#faf9f7"; dz.style.borderColor = "#c9c4bd";
+  }));
+  dz.addEventListener("drop", e => {
+    if (e.dataTransfer.files.length) { pickedFile = e.dataTransfer.files[0]; pathInput.value = ""; showPicked(); }
+  });
+  function showPicked() {
+    dz.innerHTML = `Selected: <strong>${pickedFile.name}</strong> &nbsp;(click to change)`;
+    dz.appendChild(fileInput);
+  }
+  pathInput.addEventListener("input", () => { if (pathInput.value.trim()) pickedFile = null; });
+
+  btn.addEventListener("click", async () => {
+    const path = pathInput.value.trim();
+    if (!pickedFile && !path) { msg.textContent = "Pick a STEP file or paste a path first."; return; }
+    btn.disabled = true;
+    msg.textContent = "Meshing…";
+    try {
+      let res;
+      if (pickedFile) {
+        const fd = new FormData();
+        fd.append("step_file", pickedFile);
+        fd.append("element_type", elemSel.value);
+        fd.append("target_size", sizeInput.value);
+        res = await fetch("/process_step", { method: "POST", body: fd });
+      } else {
+        res = await fetch("/process_step", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, element_type: elemSel.value, target_size: sizeInput.value }),
+        });
+      }
+      const data = await res.json();
+      if (!data.ok) { msg.innerHTML = `<span class="row-error">${data.error}</span>`; return; }
+      msg.textContent =
+        `${data.element_type}: ${data.num_elements} elements, ${data.num_nodes} nodes ` +
+        `(element size ${Number(data.target_size).toFixed(3)})`;
+      showMesh(data.render, data.bbox);
+    } catch (err) {
+      msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // --- minimal three.js orbit viewport ---
+  let renderer, scene, camera, meshGroup, raf = null;
+  const target = new THREE.Vector3();
+  const sph = { r: 10, theta: Math.PI * 0.25, phi: Math.PI * 0.35 };
+
+  function initViewer() {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+    renderer.setClearColor(0xffffff, 1);
+    viewport.appendChild(renderer.domElement);
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(45, viewport.clientWidth / viewport.clientHeight, 0.01, 1e7);
+    meshGroup = new THREE.Group();
+    scene.add(meshGroup);
+    attachControls(renderer.domElement);
+    window.addEventListener("resize", onResize);
+    loop();
+  }
+  function onResize() {
+    if (!renderer) return;
+    const w = viewport.clientWidth, h = viewport.clientHeight;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  function loop() {
+    raf = requestAnimationFrame(loop);
+    camera.position.set(
+      target.x + sph.r * Math.sin(sph.phi) * Math.cos(sph.theta),
+      target.y + sph.r * Math.cos(sph.phi),
+      target.z + sph.r * Math.sin(sph.phi) * Math.sin(sph.theta)
+    );
+    camera.lookAt(target);
+    renderer.render(scene, camera);
+  }
+  function attachControls(dom) {
+    let mode = 0, px = 0, py = 0;
+    dom.addEventListener("contextmenu", e => e.preventDefault());
+    dom.addEventListener("mousedown", e => { mode = (e.button === 2 || e.shiftKey) ? 2 : 1; px = e.clientX; py = e.clientY; });
+    window.addEventListener("mouseup", () => { mode = 0; });
+    window.addEventListener("mousemove", e => {
+      if (!mode) return;
+      const dx = e.clientX - px, dy = e.clientY - py;
+      px = e.clientX; py = e.clientY;
+      if (mode === 1) {
+        sph.theta += dx * 0.01;
+        sph.phi = Math.max(0.05, Math.min(Math.PI - 0.05, sph.phi - dy * 0.01));
+      } else {
+        const k = sph.r * 0.0015;
+        const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+        const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+        target.addScaledVector(right, -dx * k);
+        target.addScaledVector(up, dy * k);
+      }
+    });
+    dom.addEventListener("wheel", e => { e.preventDefault(); sph.r *= (1 + Math.sign(e.deltaY) * 0.12); }, { passive: false });
+  }
+  function showMesh(render, bbox) {
+    if (!renderer) initViewer();
+    viewHint.style.display = "none";
+    while (meshGroup.children.length) meshGroup.remove(meshGroup.children[0]);
+
+    const pos = new Float32Array(render.positions);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setIndex(render.tris);
+    geo.computeVertexNormals();
+    meshGroup.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial(
+      { color: 0x3d7ea6, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })));
+
+    const egeo = new THREE.BufferGeometry();
+    egeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    egeo.setIndex(render.edges);
+    meshGroup.add(new THREE.LineSegments(egeo, new THREE.LineBasicMaterial({ color: 0x0c1a16 })));
+
+    const cx = (bbox[0] + bbox[3]) / 2, cy = (bbox[1] + bbox[4]) / 2, cz = (bbox[2] + bbox[5]) / 2;
+    const span = Math.max(bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2], 1e-6);
+    target.set(cx, cy, cz);
+    sph.r = span * 2.2;
+  }
+})();
+</script>
+
+<!-- ===== Material keyword-block preview ===== -->
+<script>
+(function () {
+  const btn = document.getElementById("matPreviewBtn");
+  if (!btn) return;
+  const msg = document.getElementById("matMsg");
+  const out = document.getElementById("matBlock");
+  const fieldKeys = [
+    ["matE1", "E1"], ["matE2", "E2"], ["matE3", "E3"],
+    ["matNu12", "nu12"], ["matNu13", "nu13"], ["matNu23", "nu23"],
+    ["matG12", "G12"], ["matG13", "G13"], ["matG23", "G23"],
+  ];
+  btn.addEventListener("click", async () => {
+    msg.textContent = "";
+    const constants = {};
+    fieldKeys.forEach(([id, key]) => { constants[key] = document.getElementById(id).value; });
+    try {
+      const res = await fetch("/material_block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: document.getElementById("matName").value, constants }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        msg.innerHTML = `<span class="row-error">${data.error}</span>`;
+        out.style.display = "none";
+        return;
+      }
+      out.textContent = data.block;
+      out.style.display = "block";
+    } catch (err) {
+      msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
+    }
+  });
+})();
+</script>
+
+<!-- ===== Layup keyword-block preview ===== -->
+<script>
+(function () {
+  const btn = document.getElementById("layupPreviewBtn");
+  if (!btn) return;
+  const msg = document.getElementById("layupMsg");
+  const out = document.getElementById("layupBlock");
+  const matName = document.getElementById("matName");
+  const layupMat = document.getElementById("layupMat");
+  if (matName && layupMat) layupMat.value = matName.value;
+
+  btn.addEventListener("click", async () => {
+    msg.textContent = "";
+    try {
+      const res = await fetch("/section_block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          layup: document.getElementById("layupAngles").value,
+          symmetric: document.getElementById("layupSym").checked,
+          thickness: document.getElementById("layupThk").value,
+          material: layupMat.value,
+          elset: document.getElementById("layupElset").value,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        msg.innerHTML = `<span class="row-error">${data.error}</span>`;
+        out.style.display = "none";
+        return;
+      }
+      msg.textContent = `${data.num_plies} plies`;
+      out.textContent = data.block;
+      out.style.display = "block";
+    } catch (err) {
+      msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
+    }
+  });
+})();
 </script>
 </body>
 </html>
