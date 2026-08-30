@@ -105,7 +105,7 @@ def inp_preview():
             m["nodes"], m["elements"], m["element_type"],
             d.get("material_name"), d.get("constants"),
             angles, d.get("thickness"),
-            d.get("lagers") or [], bool(d.get("symmetric")), bool(d.get("nlgeom", True)),
+            d.get("lagers") or [], bool(d.get("symmetric")), "auto",
             d.get("loads") or [],
         )
     except (StepMeshError, InpWriteError) as e:
@@ -143,7 +143,7 @@ def stop(job_id):
 
 def run_sweep(job_id, model, output_folder, combos, ccx_exe):
     """model: dict with nodes, elements, element_type, material_name,
-    constants, thickness, symmetric, nlgeom, lagers (list of
+    constants, thickness, symmetric, lagers (list of
     {index, node, type}). One full .inp is assembled and solved per angle
     combination; reaction force is read at each Lager and reported per
     Lager index (not per node id).
@@ -180,7 +180,7 @@ def run_sweep(job_id, model, output_folder, combos, ccx_exe):
                     model["nodes"], model["elements"], model["element_type"],
                     model["material_name"], model["constants"],
                     list(combo), model["thickness"], model["lagers"],
-                    model["symmetric"], model["nlgeom"], model["loads"],
+                    model["symmetric"], "auto", model["loads"],
                 )
                 with open(output_path, "w") as f:
                     f.write(text)
@@ -274,7 +274,7 @@ def sweep_start():
             grid["nodes"], grid["elements"], grid["element_type"],
             data.get("material_name"), data.get("constants"),
             [0.0] * num_plies, data.get("thickness"),
-            lagers, bool(data.get("symmetric")), bool(data.get("nlgeom", True)), loads,
+            lagers, bool(data.get("symmetric")), "auto", loads,
         )
     except (StepMeshError, InpWriteError) as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -287,7 +287,6 @@ def sweep_start():
         "constants": data.get("constants"),
         "thickness": data.get("thickness"),
         "symmetric": bool(data.get("symmetric")),
-        "nlgeom": bool(data.get("nlgeom", True)),
         "lagers": lagers,
         "loads": loads,
     }
@@ -349,7 +348,7 @@ def run_simulate(job_id, model, angles, output_folder, ccx_exe):
             f.write(full_inp(
                 model["nodes"], model["elements"], model["element_type"],
                 model["material_name"], model["constants"], angles, model["thickness"],
-                model["lagers"], model["symmetric"], model["nlgeom"], model["loads"],
+                model["lagers"], model["symmetric"], "auto", model["loads"],
             ))
         job["inp_path"] = inp_path
 
@@ -402,7 +401,7 @@ def simulate_start():
         full_inp(
             grid["nodes"], grid["elements"], grid["element_type"],
             data.get("material_name"), data.get("constants"), angles, data.get("thickness"),
-            lagers, bool(data.get("symmetric")), bool(data.get("nlgeom", True)), loads,
+            lagers, bool(data.get("symmetric")), "auto", loads,
         )
     except (StepMeshError, InpWriteError) as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -411,7 +410,7 @@ def simulate_start():
         "nodes": grid["nodes"], "elements": grid["elements"], "element_type": grid["element_type"],
         "material_name": data.get("material_name"), "constants": data.get("constants"),
         "thickness": data.get("thickness"), "symmetric": bool(data.get("symmetric")),
-        "nlgeom": bool(data.get("nlgeom", True)), "lagers": lagers, "loads": loads,
+        "lagers": lagers, "loads": loads,
     }
     job_id = uuid.uuid4().hex
     job = {

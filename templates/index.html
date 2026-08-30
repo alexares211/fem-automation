@@ -2,115 +2,226 @@
   <html lang="en">
   <head>
   <meta charset="utf-8">
-  <title>Ply Orientation Generator</title>
+  <title>FEM Automation</title>
   <style>
-    body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; max-width: 800px; margin: 40px auto; color: #1b2321; }
-    h1 { font-size: 1.4rem; margin-bottom: 4px; }
-    p.sub { color: #5b6462; margin-top: 0; }
-    label { display: block; font-weight: 600; margin-top: 18px; margin-bottom: 4px; }
-    input[type=text], input[type=number] { width: 100%; padding: 8px; box-sizing: border-box; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
-    input[type=number] { width: 140px; }
-    .row { display: flex; gap: 16px; }
+    :root {
+      --bg: #0b1119; --panel: #121b28; --panel-2: #0f1826; --inset: #0b131e;
+      --border: #22303f; --border-2: #2c3d50; --field: #3f5d79;
+      --text: #eef3f8; --text-dim: #a9b9cb; --text-mut: #93a3b6;
+      --accent: #12c2e9; --accent-h: #4bd6f2; --accent-ink: #04141b;
+      --ok: #37d39b; --err: #ff5a6a; --warn: #ffc247;
+      --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      max-width: 880px; margin: 0 auto; padding: 40px 22px 120px;
+      background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); }
+    code { font-family: var(--mono); font-size: 0.86em; color: var(--accent-h);
+      background: rgba(255,255,255,0.04); padding: 1px 5px; border-radius: 4px; }
+
+    .masthead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .masthead h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.16em;
+      text-transform: uppercase; margin: 0; }
+    .masthead .tag { font-size: 12.5px; color: var(--text-dim); letter-spacing: 0.1em;
+      text-transform: uppercase; }
+
+    .panel { background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 22px 24px; margin-top: 16px; }
+    .sec-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .sec-num { font-family: var(--mono); font-size: 16px; font-weight: 700;
+      color: var(--accent); letter-spacing: 0.04em; }
+    .sec-title { font-size: 0.95rem; font-weight: 700; letter-spacing: 0.13em;
+      text-transform: uppercase; color: var(--text); margin: 0; }
+    .sec-note { margin: -2px 0 16px; color: var(--text-dim); font-size: 14px; }
+
+    label { display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.07em;
+      text-transform: uppercase; color: var(--text-dim); margin: 14px 0 5px; }
+    input[type=text], input[type=number] {
+      width: 100%; padding: 9px 11px; font-size: 13.5px; font-family: inherit;
+      color: var(--text); background: var(--inset);
+      border: 1px solid var(--field); border-radius: 7px; outline: none;
+    }
+    input[type=text]:focus, input[type=number]:focus {
+      border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,194,233,0.15);
+    }
+    input::placeholder { color: var(--text-mut); }
+    .row { display: flex; gap: 14px; }
     .row > div { flex: 1; }
-    .hint { color: #5b6462; font-size: 12.5px; margin-top: 3px; }
-    button { margin-top: 22px; padding: 10px 22px; font-size: 14px; background: #c14a0c; color: white; border: none; border-radius: 5px; cursor: pointer; }
-    button:hover { background: #a53f0a; }
-    button:disabled { opacity: 0.6; cursor: not-allowed; }
-    .box { margin-top: 26px; padding: 16px 18px; border-radius: 6px; font-size: 13.5px; }
-    .ok { background: #eaf5ea; border: 1px solid #9cc99c; }
-    .err { background: #fbe9e6; border: 1px solid #e3a397; }
-    .warn { background: #fff6e0; border: 1px solid #e3c397; }
-    .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
-    table { width: 100%; margin-top: 8px; border-collapse: collapse; }
-    td, th { padding: 6px 4px; vertical-align: top; }
-    pre { background: #1c2624; color: #dce6e2; padding: 12px; border-radius: 5px; font-size: 11.5px; overflow-x: auto; margin-top: 8px; max-height: 260px; overflow-y: auto; }
-    h3 { font-size: 1rem; margin: 0 0 4px; }
-    .resultsTable { border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
-    .resultsTable th { text-align: left; background: #f3f1ee; cursor: pointer; user-select: none; padding: 8px 10px; border-bottom: 1px solid #ddd; font-size: 12.5px; white-space: nowrap; }
-    .resultsTable th:hover { background: #ece8e3; }
-    .resultsTable td { padding: 7px 10px; border-bottom: 1px solid #eee; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+    .check { display: flex; align-items: center; gap: 8px; margin-top: 14px;
+      font-size: 14px; color: var(--text-dim);
+      text-transform: none; letter-spacing: 0; font-weight: 400; }
+    .check input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+    button {
+      font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; cursor: pointer;
+      padding: 11px 22px; margin-top: 16px; border-radius: 7px;
+      background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent);
+      transition: background .12s, border-color .12s;
+    }
+    button:hover { background: var(--accent-h); border-color: var(--accent-h); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.ghost { background: transparent; color: var(--accent-h); border: 1px solid var(--border-2); }
+    button.ghost:hover { background: rgba(18,194,233,0.08); border-color: var(--accent); }
+    .btn-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
+    .btn-row button { flex: 1 1 0; min-width: 140px; max-width: 210px; margin-top: 12px; }
+    .btn-run { min-width: 260px; }
+
+    #stepDrop { border: 1.5px dashed var(--border-2); border-radius: 10px; padding: 24px;
+      text-align: center; color: var(--text); font-size: 15px; cursor: pointer;
+      background: var(--panel-2); transition: border-color .12s, color .12s; }
+    #stepDrop:hover { border-color: var(--accent); color: var(--text); }
+
+    #stepViewport { flex: 1; height: 460px; border: 1px solid var(--border);
+      border-radius: 10px; background: var(--inset); position: relative; overflow: hidden; }
+    #viewControls button { margin: 0; padding: 0; width: 30px; height: 30px; font-size: 15px;
+      letter-spacing: 0; background: rgba(18,27,40,0.85); color: var(--text);
+      border: 1px solid var(--border-2); }
+    #viewControls button:hover { background: rgba(18,194,233,0.15); border-color: var(--accent); }
+
+    #lagerPalette { width: 108px; border: 1px solid var(--border); border-radius: 10px;
+      display: flex; flex-direction: column; overflow: hidden; background: var(--panel-2); }
+    .pal-group-label { padding: 7px 4px 5px; font-size: 10.5px; font-weight: 700;
+      letter-spacing: 0.12em; text-align: center; color: var(--text-dim); }
+    .pal-body { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+    .pal-tile { border-radius: 7px; padding: 9px 4px; text-align: center; font-size: 10.5px;
+      font-weight: 600; letter-spacing: 0.03em; cursor: grab; color: #fff; user-select: none;
+      border: 1px solid transparent; }
+    .pal-tile .ico { font-size: 19px; line-height: 1; display: block; margin-bottom: 2px; }
+    .pal-tile.t-festlager    { background: #c1490c; border-color: #e2681f; }
+    .pal-tile.t-force        { background: #1f7a2e; border-color: #2fa044; }
+    .pal-tile.t-displacement { background: #7a2fc1; border-color: #9a4fe0; }
+
+    .hint { color: var(--text-mut); font-size: 13.5px; margin-top: 6px; }
+    .progress-line { font-size: 13.5px; color: var(--text-dim); margin-top: 10px;
+      font-variant-numeric: tabular-nums; }
+    .row-error { color: var(--err); }
+    .table-wrap { overflow-x: auto; margin-top: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    .resultsTable { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .resultsTable th { text-align: left; background: var(--panel-2); cursor: pointer;
+      user-select: none; padding: 9px 11px; border-bottom: 1px solid var(--border);
+      font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--text-dim); white-space: nowrap; }
+    .resultsTable th:hover { color: var(--text); }
+    .resultsTable td { padding: 8px 11px; border-bottom: 1px solid var(--border);
+      font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text); }
     .resultsTable tr:last-child td { border-bottom: none; }
-    .sort-arrow { font-size: 10px; opacity: 0.6; margin-left: 4px; }
-    .row-error { color: #a53f0a; }
-    .progress-line { font-size: 13px; color: #5b6462; margin-top: 8px; }
-    .table-wrap { overflow-x: auto; }
-    .overlay { display: none; position: fixed; inset: 0; background: rgba(255,255,255,0.88); z-index: 1000; flex-direction: column; align-items: center; justify-content: center; }
-    .spinner { width: 56px; height: 56px; border-radius: 50%; background: conic-gradient(#c14a0c 0deg, #f2b48c 120deg, transparent 200deg); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 7px)); mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 7px)); animation: spin 0.8s linear infinite; }
+    .resultsTable button { margin: 0; padding: 4px 12px; font-size: 11px; text-transform: none;
+      letter-spacing: 0; font-weight: 600; color: #fff; border: 1px solid transparent; }
+    .resultsTable input[type=number] { padding: 3px 5px; }
+    .btn-festlager    { background: #c1490c; border-color: #dd6a24; }
+    .btn-force        { background: #1f7a2e; border-color: #33a049; }
+    .btn-displacement { background: #7a2fc1; border-color: #9a52e0; }
+    .sort-arrow { font-size: 9px; color: var(--accent); margin-left: 4px; }
+
+    pre { background: var(--inset); color: #cfe0ee; border: 1px solid var(--border);
+      padding: 13px; border-radius: 8px; font-family: var(--mono); font-size: 11.5px;
+      line-height: 1.55; overflow: auto; margin-top: 10px; max-height: 300px; }
+
+    .overlay { display: none; position: fixed; inset: 0; z-index: 1000;
+      background: rgba(6,11,18,0.86); backdrop-filter: blur(3px);
+      flex-direction: column; align-items: center; justify-content: center; }
+    .spinner { width: 54px; height: 54px; border-radius: 50%;
+      background: conic-gradient(var(--accent) 0deg, rgba(18,194,233,0.25) 140deg, transparent 240deg);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 6px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 6px));
+      animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .overlay-text { margin-top: 18px; font-weight: 600; }
-    .overlay-elapsed { margin-top: 4px; font-size: 12.5px; color: #5b6462; font-variant-numeric: tabular-nums; }
+    .overlay-text { margin-top: 18px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; font-size: 13px; }
+    .overlay-elapsed { margin-top: 5px; font-size: 12px; color: var(--text-dim);
+      font-variant-numeric: tabular-nums; }
     .overlay pre { width: 560px; max-width: 85vw; margin-top: 16px; }
-    #stopBtnInner { background: #8a1f11; }
-    #stopBtnInner:hover { background: #6e1a0d; }
+    #stopBtnInner { background: var(--err); border-color: var(--err); color: #fff; }
+    #stopBtnInner:hover { background: #ff7581; border-color: #ff7581; }
   </style>
   </head>
   <body>
-    <section id="stepSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
-      <h1 style="margin-bottom:4px;">STEP &rarr; Mesh &amp; Supports</h1>
-      <p class="sub">Drop a STEP file (or paste its path). It is meshed as a regular rectangular grid so supports land on exact nodes. Drag the <strong>Festlager</strong> tile onto a node.</p>
+    <div class="masthead">
+      <h1>FEM&nbsp;Automation</h1>
+      <span class="tag">STEP &rarr; CalculiX composite optimization</span>
+    </div>
 
-      <div id="stepDrop" style="border:2px dashed #c9c4bd; border-radius:6px; padding:16px; text-align:center; color:#5b6462; font-size:13px; cursor:pointer; background:#faf9f7;">
-        Drop a <strong>.step / .stp</strong> file here, or click to choose
+    <div class="panel" id="runSettings" style="padding:16px 20px;">
+      <div class="sec-head" style="margin-bottom:10px;">
+        <span class="sec-num">&middot;&middot;</span><h2 class="sec-title">Run settings</h2>
+      </div>
+      <div class="row">
+        <div>
+          <label for="run_output_folder">Output folder</label>
+          <input type="text" id="run_output_folder" placeholder="D:\runs\model1">
+        </div>
+        <div>
+          <label for="run_ccx_exe">CalculiX .exe</label>
+          <input type="text" id="run_ccx_exe" value="{{ default_ccx_exe }}">
+        </div>
+      </div>
+    </div>
+
+    <section class="panel" id="stepSection">
+      <div class="sec-head"><span class="sec-num">01</span><h2 class="sec-title">Model</h2></div>
+
+      <div id="stepDrop">
+        Drop a <strong>.step</strong> file &mdash; or click
         <input type="file" id="stepFile" accept=".step,.stp,.STEP,.STP" style="display:none;">
       </div>
 
-      <label for="stepPath">&hellip; or paste the file path</label>
-      <input type="text" id="stepPath" placeholder="D:\path\to\part.step">
-
-      <label for="stepSpacing">Node spacing (mm)</label>
-      <input type="number" id="stepSpacing" step="any" min="0" value="1">
-      <div class="hint">Grid node spacing. 1&nbsp;mm gives a node every millimetre so a Festlager can sit exactly where you want. Larger = coarser + faster.</div>
-
-      <button type="button" id="stepBtn">Process STEP file</button>
+      <div class="row" style="margin-top:12px; align-items:flex-end;">
+        <div style="max-width:150px;">
+          <label for="stepSpacing">Grid (mm)</label>
+          <input type="number" id="stepSpacing" step="any" min="0" value="5">
+        </div>
+        <div style="flex:0 0 auto;">
+          <button type="button" id="stepBtn" style="margin-top:0;">Process</button>
+        </div>
+      </div>
       <div id="stepMsg" class="progress-line"></div>
 
-      <div style="display:flex; gap:10px; margin-top:10px; align-items:stretch;">
-        <div id="stepViewport" style="flex:1; height:460px; border:1px solid #ddd; border-radius:6px; background:#ffffff; position:relative; overflow:hidden;">
-          <div id="stepViewHint" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#7c8a86; font-size:13px;">no mesh yet</div>
-          <div id="viewControls" style="position:absolute; top:8px; right:8px; display:flex; flex-direction:column; gap:4px; z-index:5;">
-            <button type="button" id="viewFit" title="Fit view" style="width:28px; height:28px; margin:0; padding:0; font-size:15px; line-height:1; background:rgba(255,255,255,0.92); color:#3a3a3a; border:1px solid #c7c7c7; border-radius:5px; cursor:pointer;">&#9974;</button>
-            <button type="button" id="viewIn" title="Zoom in" style="width:28px; height:28px; margin:0; padding:0; font-size:17px; line-height:1; background:rgba(255,255,255,0.92); color:#3a3a3a; border:1px solid #c7c7c7; border-radius:5px; cursor:pointer;">+</button>
-            <button type="button" id="viewOut" title="Zoom out" style="width:28px; height:28px; margin:0; padding:0; font-size:17px; line-height:1; background:rgba(255,255,255,0.92); color:#3a3a3a; border:1px solid #c7c7c7; border-radius:5px; cursor:pointer;">&#8722;</button>
+      <div style="display:flex; gap:10px; margin-top:12px; align-items:stretch;">
+        <div id="stepViewport">
+          <div id="stepViewHint" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#5f7186; font-size:11px; letter-spacing:0.14em; text-transform:uppercase;">no mesh</div>
+          <div id="viewControls" style="position:absolute; top:8px; right:8px; display:flex; flex-direction:column; gap:5px; z-index:5;">
+            <button type="button" id="viewFit" title="Fit view">&#9974;</button>
+            <button type="button" id="viewIn" title="Zoom in">+</button>
+            <button type="button" id="viewOut" title="Zoom out">&#8722;</button>
           </div>
         </div>
-        <div id="lagerPalette" style="width:104px; border:1px solid #ddd; border-radius:6px; display:flex; flex-direction:column; overflow:hidden;">
-          <div style="background:#f2ddcf; padding:6px 4px 4px; font-size:10px; font-weight:600; color:#8a3d15; text-align:center; letter-spacing:0.03em;">SUPPORTS</div>
-          <div style="background:#fbf1ea; padding:8px; display:flex; flex-direction:column; gap:8px; flex:1;">
-            <div class="pal-tile" data-kind="lager" data-type="festlager" draggable="true"
-                 style="border:1px solid #a53f0a; border-radius:5px; padding:8px 4px; text-align:center; font-size:11px; cursor:grab; background:#c14a0c; color:#fff; user-select:none;">
-              <div style="font-size:22px; line-height:1;">&#9155;</div>
-              Festlager
+        <div id="lagerPalette">
+          <div class="pal-group-label" style="color:#c98a5f;">SUPPORTS</div>
+          <div class="pal-body" style="flex:1;">
+            <div class="pal-tile t-festlager" data-kind="lager" data-type="festlager" draggable="true">
+              <span class="ico">&#9155;</span>Festlager
             </div>
           </div>
-          <div style="background:#dfeeda; padding:6px 4px 4px; font-size:10px; font-weight:600; color:#2f6b2f; text-align:center; letter-spacing:0.03em;">LOADS</div>
-          <div style="background:#eef5ec; padding:8px; display:flex; flex-direction:column; gap:8px;">
-            <div class="pal-tile" data-kind="load" data-type="force" draggable="true"
-                 style="border:1px solid #186418; border-radius:5px; padding:8px 4px; text-align:center; font-size:11px; cursor:grab; background:#1f7a1f; color:#fff; user-select:none;">
-              <div style="font-size:22px; line-height:1;">&#8595;</div>
-              Force
+          <div class="pal-group-label" style="color:#6fbf7f;">LOADS</div>
+          <div class="pal-body">
+            <div class="pal-tile t-force" data-kind="load" data-type="force" draggable="true">
+              <span class="ico">&#8595;</span>Force
             </div>
-            <div class="pal-tile" data-kind="load" data-type="displacement" draggable="true"
-                 style="border:1px solid #742aa3; border-radius:5px; padding:8px 4px; text-align:center; font-size:11px; cursor:grab; background:#8a2fc1; color:#fff; user-select:none;">
-              <div style="font-size:22px; line-height:1;">&#8693;</div>
-              Displace&shy;ment
+            <div class="pal-tile t-displacement" data-kind="load" data-type="displacement" draggable="true">
+              <span class="ico">&#8693;</span>Displ.
             </div>
           </div>
         </div>
       </div>
-      <div class="hint">Drag to rotate &middot; scroll to zoom &middot; right-drag (or Shift+drag) to pan &middot; drag a tile onto the mesh to drop it on a node</div>
+      <div class="hint">Drag rotate &middot; scroll zoom &middot; shift-drag pan &middot; drop a tile on a node</div>
 
-      <div id="lagerList" style="margin-top:10px;"></div>
+      <div id="lagerList" style="margin-top:12px;"></div>
       <div id="loadList" style="margin-top:10px;"></div>
     </section>
 
-    <section id="materialSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
-      <h1 style="margin-bottom:4px;">Material</h1>
-      <p class="sub">Orthotropic composite ply properties &mdash; written as <code>*Material</code> + <code>*Elastic, Type=Engineering constants</code>.</p>
+    <section class="panel" id="materialSection">
+      <div class="sec-head"><span class="sec-num">02</span><h2 class="sec-title">Material</h2></div>
 
-      <label for="matName">Material name</label>
+      <label for="matName">Name</label>
       <input type="text" id="matName" value="AS4_8552">
 
-      <div class="row" style="margin-top:14px;">
+      <div class="row" style="margin-top:12px;">
         <div><label for="matE1">E1</label><input type="number" id="matE1" step="any" value="135100"></div>
         <div><label for="matE2">E2</label><input type="number" id="matE2" step="any" value="9600"></div>
         <div><label for="matE3">E3</label><input type="number" id="matE3" step="any" value="9600"></div>
@@ -125,103 +236,69 @@
         <div><label for="matG13">G13</label><input type="number" id="matG13" step="any" value="5300"></div>
         <div><label for="matG23">G23</label><input type="number" id="matG23" step="any" value="3228.6"></div>
       </div>
-      <div class="hint">Model units (moduli in N/mm&sup2; = MPa for the TorsionPlatte template). CalculiX order: E1, E2, E3, &nu;12, &nu;13, &nu;23, G12, G13 on line 1, G23 on its own line.</div>
-
-      <button type="button" id="matPreviewBtn">Preview keyword block</button>
-      <div id="matMsg" class="progress-line"></div>
-      <pre id="matBlock" style="display:none;"></pre>
+      <div class="hint">MPa &middot; orthotropic engineering constants</div>
     </section>
 
-    <section id="layupSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
-      <h1 style="margin-bottom:4px;">Layup</h1>
-      <p class="sub">Fibre angle per ply &mdash; written as one uniquely-named <code>*Orientation</code> per ply plus a <code>*Shell section, &hellip;, Composite</code> card.</p>
+    <section class="panel" id="layupSection">
+      <div class="sec-head"><span class="sec-num">03</span><h2 class="sec-title">Layup</h2></div>
 
-      <label for="layupAngles">Ply angles (&deg;, from ply 1 outward)</label>
-      <input type="text" id="layupAngles" value="30/-30" placeholder="e.g. 0/45/-45/90">
-      <div class="hint">Separate with "/" or ",". Number of plies = number of angles.</div>
+      <label for="layupAngles">Ply angles &mdash; ply&nbsp;1 outward</label>
+      <input type="text" id="layupAngles" value="30/-30" placeholder="0/45/-45/90">
 
-      <div style="margin-top:12px;">
-        <label style="display:inline; font-weight:400;">
-          <input type="checkbox" id="layupSym"> Symmetric &mdash; mirror the list (0/45/90 &rarr; 0/45/90/90/45/0)
+      <div class="row" style="margin-top:12px; align-items:flex-end;">
+        <div style="max-width:170px;">
+          <label for="layupThk">Ply thickness <span style="color:var(--warn);">*</span></label>
+          <input type="number" id="layupThk" step="any" min="0">
+        </div>
+        <label class="check" style="margin-bottom:9px;">
+          <input type="checkbox" id="layupSym"> Symmetric (mirror)
         </label>
       </div>
-
-      <label for="layupThk">Ply thickness <span style="font-weight:400; color:#a53f0a;">(required)</span></label>
-      <input type="number" id="layupThk" step="any" min="0" placeholder="e.g. 0.184">
-      <div class="hint">No default &mdash; you must enter this. Used for every ply here and in the Angle Sweep. Uses the material from the Material section.</div>
-
-      <button type="button" id="layupPreviewBtn">Preview keyword block</button>
-      <div id="layupMsg" class="progress-line"></div>
-      <pre id="layupBlock" style="display:none;"></pre>
     </section>
 
-    <section id="fullInpSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
-      <h1 style="margin-bottom:4px;">Full input file</h1>
-      <p class="sub">Assembles the mesh, material, layup, supports and loads into one complete <code>.inp</code> deck.</p>
-      <button type="button" id="fullInpBtn" style="background:#3f5c86;">Preview full .inp</button>
+    <section class="panel" id="previewSection">
+      <div class="sec-head"><span class="sec-num">04</span><h2 class="sec-title">Preview .inp</h2></div>
+
+      <div class="btn-row">
+        <button type="button" class="ghost" id="matPreviewBtn">Material</button>
+        <button type="button" class="ghost" id="layupPreviewBtn">Layup</button>
+        <button type="button" class="ghost" id="fullInpBtn">Full deck</button>
+      </div>
+
+      <div id="matMsg" class="progress-line"></div>
+      <pre id="matBlock" style="display:none;"></pre>
+      <div id="layupMsg" class="progress-line"></div>
+      <pre id="layupBlock" style="display:none;"></pre>
       <div id="fullInpMsg" class="progress-line"></div>
       <pre id="fullInpOut" style="display:none;"></pre>
     </section>
 
-    <section id="simulateSection" style="margin: 8px 0 34px; padding-bottom: 26px; border-bottom: 1px solid #ddd;">
-      <h1 style="margin-bottom:4px;">Simulate</h1>
-      <p class="sub">Run CalculiX once on the model with the exact layup from the Layup section, and write the result files to a folder.</p>
-
-      <label for="sim_output_folder">Output folder</label>
-      <input type="text" id="sim_output_folder" placeholder="D:\...\runs\model1">
-      <div class="hint">Created automatically if it doesn't exist yet. The deck is written as <code>model.inp</code>; CalculiX puts <code>.frd/.dat/.sta/...</code> alongside it.</div>
-
-      <label for="sim_ccx_exe">CalculiX executable</label>
-      <input type="text" id="sim_ccx_exe" value="{{ default_ccx_exe }}">
-
-      <button type="button" id="simBtn" style="background:#2f7d6b;">Simulate</button>
+    <section class="panel" id="simulateSection">
+      <div class="sec-head"><span class="sec-num">05</span><h2 class="sec-title">Simulate</h2></div>
+      <p class="sec-note">One run with the layup above.</p>
+      <button type="button" class="btn-run" id="simBtn" style="margin-top:0;">Run</button>
       <div id="simMsg" class="progress-line"></div>
-      <div id="simResults" class="table-wrap" style="margin-top:10px;"></div>
+      <div id="simResults" class="table-wrap"></div>
       <pre id="simLog" style="display:none;"></pre>
     </section>
 
-    <h1>Angle Sweep</h1>
-    <p class="sub">Builds a full <code>.inp</code> for every combination of per-ply angles from the mesh, material, thickness and Festlager supports defined above, solves each, and reports the reaction force at each Lager.</p>
+    <section class="panel" id="optSection">
+      <div class="sec-head"><span class="sec-num">06</span><h2 class="sec-title">Parameter Optimization</h2></div>
+      <p class="sec-note">Solves every angle combination in the range and ranks by reaction force.</p>
 
-    <form id="sweepForm">
-      <label for="sweep_output_folder">Output folder</label>
-      <input type="text" id="sweep_output_folder" placeholder="D:\...\runs\sweep1">
-      <div class="hint">Created automatically if it doesn't exist yet.</div>
-
-      <div class="row">
-        <div>
-          <label for="angle_min">Start angle (&deg;)</label>
-          <input type="number" id="angle_min" value="-90" step="any">
+      <form id="sweepForm">
+        <div class="row">
+          <div><label for="angle_min">Start &deg;</label><input type="number" id="angle_min" value="-90" step="any"></div>
+          <div><label for="angle_max">End &deg;</label><input type="number" id="angle_max" value="90" step="any"></div>
+          <div><label for="angle_step">Step &deg;</label><input type="number" id="angle_step" value="15" step="any" min="0"></div>
+          <div><label for="num_plies">Plies</label><input type="number" id="num_plies" value="1" step="1" min="1"></div>
         </div>
-        <div>
-          <label for="angle_max">End angle (&deg;)</label>
-          <input type="number" id="angle_max" value="90" step="any">
-        </div>
-        <div>
-          <label for="angle_step">Step (&deg;)</label>
-          <input type="number" id="angle_step" value="15" step="any" min="0">
-        </div>
-      </div>
-      <div class="hint">Ply angle is periodic every 180&deg;. Set Start = End for a single angle.</div>
+        <div style="margin-top:16px;"><button type="submit" class="btn-run" id="sweepBtn">Run optimization</button></div>
+      </form>
 
-      <label for="num_plies">Number of plies</label>
-      <input type="number" id="num_plies" value="1" step="1" min="1">
-      <div class="hint">Every ply independently tries every angle -- combinations = angles<sup>plies</sup>.</div>
-
-      <div style="margin-top:14px;">
-        <label style="display:inline; font-weight:400;">
-          <input type="checkbox" id="sweepNlgeom" checked> Large displacement (<code>*Step, Nlgeom</code>)
-        </label>
-      </div>
-
-      <label for="sweep_ccx_exe">CalculiX executable</label>
-      <input type="text" id="sweep_ccx_exe" value="{{ default_ccx_exe }}">
-
-      <button type="submit" id="sweepBtn">Run sweep</button>
-    </form>
-
-    <div id="sweepProgress" class="progress-line"></div>
-    <div id="sweepTableBox" class="table-wrap"></div>
+      <div id="sweepProgress" class="progress-line"></div>
+      <div id="sweepTableBox" class="table-wrap"></div>
+    </section>
 
     <div class="overlay" id="overlay">
       <div class="spinner"></div>
@@ -392,7 +469,7 @@ async function pollSweep() {
     showOverlay(false);
     setDisabled(sweepInputs, false);
     if (data.fatal_error) {
-      sweepProgress.innerHTML = `<span class="row-error">Sweep aborted: ${escapeHtml(data.fatal_error)}</span>`;
+      sweepProgress.innerHTML = `<span class="row-error">Optimization aborted: ${escapeHtml(data.fatal_error)}</span>`;
     } else {
       sweepProgress.textContent = `Done -- ${combosDone} / ${data.total} combinations completed.`;
     }
@@ -406,7 +483,7 @@ sweepForm.addEventListener("submit", async (e) => {
   sweepProgress.textContent = "";
   liveLog.textContent = "";
   setDisabled(sweepInputs, true);
-  showOverlay(true, "Starting sweep\u2026");
+  showOverlay(true, "Starting optimization\u2026");
 
   const m = window.femCollectModel ? window.femCollectModel() : {};
   if (!m.source_path) {
@@ -428,13 +505,12 @@ sweepForm.addEventListener("submit", async (e) => {
     return;
   }
   const payload = Object.assign({}, m, {
-    output_folder: document.getElementById("sweep_output_folder").value,
+    output_folder: document.getElementById("run_output_folder").value,
     angle_min: document.getElementById("angle_min").value,
     angle_max: document.getElementById("angle_max").value,
     angle_step: document.getElementById("angle_step").value,
     num_plies: document.getElementById("num_plies").value,
-    ccx_exe: document.getElementById("sweep_ccx_exe").value,
-    nlgeom: document.getElementById("sweepNlgeom").checked,
+    ccx_exe: document.getElementById("run_ccx_exe").value,
   });
 
   try {
@@ -467,7 +543,6 @@ sweepForm.addEventListener("submit", async (e) => {
 (function () {
   const dz = document.getElementById("stepDrop");
   const fileInput = document.getElementById("stepFile");
-  const pathInput = document.getElementById("stepPath");
   const spacingInput = document.getElementById("stepSpacing");
   const btn = document.getElementById("stepBtn");
   const msg = document.getElementById("stepMsg");
@@ -490,7 +565,7 @@ sweepForm.addEventListener("submit", async (e) => {
   // ---- STEP file drop zone ----
   dz.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", () => {
-    if (fileInput.files.length) { pickedFile = fileInput.files[0]; pathInput.value = ""; showPicked(); }
+    if (fileInput.files.length) { pickedFile = fileInput.files[0]; showPicked(); }
   });
   ["dragover", "dragenter"].forEach(ev => dz.addEventListener(ev, e => {
     e.preventDefault(); dz.style.background = "#eef3ef"; dz.style.borderColor = "#8fae9b";
@@ -502,35 +577,24 @@ sweepForm.addEventListener("submit", async (e) => {
     if (e.dataTransfer.files.length) {
       pickedFile = e.dataTransfer.files[0];
       try { const dt = new DataTransfer(); dt.items.add(pickedFile); fileInput.files = dt.files; } catch (_) {}
-      pathInput.value = ""; showPicked();
+      showPicked();
     }
   });
   function showPicked() {
     dz.innerHTML = `Selected: <strong>${pickedFile.name}</strong> &nbsp;(click to change)`;
     dz.appendChild(fileInput);
   }
-  pathInput.addEventListener("input", () => { if (pathInput.value.trim()) pickedFile = null; });
 
   // ---- process STEP -> structured grid ----
   btn.addEventListener("click", async () => {
-    const path = pathInput.value.trim();
-    if (!pickedFile && !path) { msg.textContent = "Pick a STEP file or paste a path first."; return; }
+    if (!pickedFile) { msg.textContent = "Pick a STEP file first."; return; }
     btn.disabled = true;
     msg.textContent = "Meshing…";
     try {
-      let res;
-      if (pickedFile) {
-        const fd = new FormData();
-        fd.append("step_file", pickedFile);
-        fd.append("spacing", spacingInput.value);
-        res = await fetch("/process_step", { method: "POST", body: fd });
-      } else {
-        res = await fetch("/process_step", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path, spacing: spacingInput.value }),
-        });
-      }
+      const fd = new FormData();
+      fd.append("step_file", pickedFile);
+      fd.append("spacing", spacingInput.value);
+      const res = await fetch("/process_step", { method: "POST", body: fd });
       const data = await res.json();
       if (!data.ok) { msg.innerHTML = `<span class="row-error">${data.error}</span>`; return; }
       meshSource = data.source_path;
@@ -569,7 +633,7 @@ sweepForm.addEventListener("submit", async (e) => {
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio || 1);
     renderer.setSize(viewport.clientWidth, viewport.clientHeight);
-    renderer.setClearColor(0xffffff, 1);
+    renderer.setClearColor(0x05090e, 1);
     viewport.appendChild(renderer.domElement);
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(45, viewport.clientWidth / viewport.clientHeight, 0.01, 1e7);
@@ -630,6 +694,7 @@ sweepForm.addEventListener("submit", async (e) => {
     while (meshGroup.children.length) meshGroup.remove(meshGroup.children[0]);
     lagers = [];
     loads = [];
+    hidePreview();
     rebuildMarkers();
     renderLagerList();
     renderLoadList();
@@ -641,13 +706,13 @@ sweepForm.addEventListener("submit", async (e) => {
     geo.setIndex(render.tris);
     geo.computeVertexNormals();
     meshObj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial(
-      { color: 0x9fbcd0, side: THREE.DoubleSide, transparent: true, opacity: 0.92 }));
+      { color: 0x4a6480, side: THREE.DoubleSide, transparent: true, opacity: 0.95 }));
     meshGroup.add(meshObj);
 
     const egeo = new THREE.BufferGeometry();
     egeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     egeo.setIndex(render.edges);
-    meshGroup.add(new THREE.LineSegments(egeo, new THREE.LineBasicMaterial({ color: 0x33454f })));
+    meshGroup.add(new THREE.LineSegments(egeo, new THREE.LineBasicMaterial({ color: 0xb4c8da })));
 
     // full node table for snapping supports to exact nodes
     const nd = data.nodes || {};
@@ -681,43 +746,87 @@ sweepForm.addEventListener("submit", async (e) => {
     });
   }
   function axisLabelSprite(text, color) {
-    const c = document.createElement("canvas"); c.width = c.height = 48;
+    const c = document.createElement("canvas"); c.width = c.height = 64;
     const ctx = c.getContext("2d");
-    ctx.fillStyle = "#" + color.toString(16).padStart(6, "0");
-    ctx.font = "bold 40px -apple-system, Arial, sans-serif";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(text, 24, 26);
+    ctx.font = "bold 48px -apple-system, Arial, sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.lineWidth = 7; ctx.strokeStyle = "rgba(5,9,14,0.9)"; ctx.strokeText(text, 32, 34);
+    ctx.fillStyle = "#ffffff"; ctx.fillText(text, 32, 34);
     const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
-    spr.scale.setScalar(span * 0.09);
+    spr.scale.setScalar(span * 0.11);
     return spr;
   }
 
   // ---- drag a palette tile onto a node ----
+  // Small coloured dot used as the drag image, so the big palette tile does not
+  // sit under the cursor and hide the grid you are aiming at.
+  const TYPE_COLOR = { festlager: "#c14a0c", force: "#1f7a1f", displacement: "#8a2fc1" };
+  const dragDot = document.createElement("div");
+  dragDot.style.cssText =
+    "position:fixed; left:-60px; top:-60px; width:14px; height:14px; border-radius:50%;" +
+    "border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,0.45); pointer-events:none; z-index:9999;";
+  document.body.appendChild(dragDot);
+
   document.querySelectorAll(".pal-tile").forEach(tile => {
     tile.addEventListener("dragstart", e => {
-      e.dataTransfer.setData("text/plain", (tile.dataset.kind || "lager") + ":" + (tile.dataset.type || "festlager"));
+      const type = tile.dataset.type || "festlager";
+      e.dataTransfer.setData("text/plain", (tile.dataset.kind || "lager") + ":" + type);
       e.dataTransfer.effectAllowed = "copy";
+      dragDot.style.background = TYPE_COLOR[type] || "#c14a0c";
+      try { e.dataTransfer.setDragImage(dragDot, 8, 8); } catch (_) {}
     });
   });
   function nodeTaken(id, skipLager, skipLoad) {
     return lagers.some((l, k) => k !== skipLager && l.node === id)
         || loads.some((l, k) => k !== skipLoad && l.node === id);
   }
+
+  // translucent dot that snaps to the nearest node while a tile is dragged over
+  // the viewport, so you can see exactly where it will land before dropping.
+  let previewMarker = null;
+  function showPreviewAt(xyz) {
+    if (!scene) return;
+    if (!previewMarker) {
+      previewMarker = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 16, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent: true, opacity: 0.9, depthTest: false })
+      );
+      previewMarker.renderOrder = 999;
+      scene.add(previewMarker);
+    }
+    previewMarker.scale.setScalar(Math.max(span * 0.02, 1e-4));
+    previewMarker.position.set(xyz[0], xyz[1], xyz[2]);
+    previewMarker.visible = true;
+  }
+  function hidePreview() { if (previewMarker) previewMarker.visible = false; }
+
+  function nodeUnderPointer(dom, e) {
+    if (!meshObj || !nodeIds.length) return null;
+    const rect = dom.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+    raycaster.setFromCamera(ndc, camera);
+    const hit = raycaster.intersectObject(meshObj, false)[0];
+    return hit ? nearestNode(hit.point) : null;
+  }
+
   function attachDropTarget(dom) {
-    dom.addEventListener("dragover", e => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+    dom.addEventListener("dragover", e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      const n = nodeUnderPointer(dom, e);
+      if (n) showPreviewAt(n.xyz); else hidePreview();
+    });
+    dom.addEventListener("dragleave", () => hidePreview());
     dom.addEventListener("drop", e => {
       e.preventDefault();
+      hidePreview();
       if (!meshObj || !nodeIds.length) { msg.textContent = "Process a STEP file before placing anything."; return; }
       const [kind, type] = (e.dataTransfer.getData("text/plain") || "lager:festlager").split(":");
-      const rect = dom.getBoundingClientRect();
-      const ndc = new THREE.Vector2(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1
-      );
-      raycaster.setFromCamera(ndc, camera);
-      const hit = raycaster.intersectObject(meshObj, false)[0];
-      if (!hit) { msg.textContent = "Drop the tile onto the mesh surface."; return; }
-      const n = nearestNode(hit.point);
-      if (!n) return;
+      const n = nodeUnderPointer(dom, e);
+      if (!n) { msg.textContent = "Drop the tile onto the mesh surface."; return; }
       if (nodeTaken(n.id, -1, -1)) { msg.textContent = "Node " + n.id + " already has a support or load."; return; }
       if (kind === "load") {
         loads.push({ type, node: n.id, xyz: n.xyz, dir: normalDir.slice(), mag: 1 });
@@ -803,7 +912,7 @@ sweepForm.addEventListener("submit", async (e) => {
     const rows = lagers.map((l, i) =>
       `<tr><td>Lager ${l.index}</td><td>${l.type}</td>` +
       `<td>${xyzStack(["lgx", "lgy", "lgz"], i, [l.xyz[0].toFixed(2), l.xyz[1].toFixed(2), l.xyz[2].toFixed(2)], st)}</td>` +
-      `<td><button type="button" class="lg-del" data-i="${i}" style="margin:0; padding:2px 8px; font-size:12px; background:#c14a0c;">remove</button></td></tr>`
+      `<td><button type="button" class="lg-del btn-festlager" data-i="${i}">remove</button></td></tr>`
     ).join("");
     lagerListBox.innerHTML =
       `<table class="resultsTable"><thead><tr><th>Support</th><th>Type</th><th>Position (X, Y, Z)</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -826,7 +935,7 @@ sweepForm.addEventListener("submit", async (e) => {
       `<td>${xyzStack(["ldx", "ldy", "ldz"], i, [l.xyz[0].toFixed(2), l.xyz[1].toFixed(2), l.xyz[2].toFixed(2)], st)}</td>` +
       `<td>${xyzStack(["ldu", "ldv", "ldw"], i, [l.dir[0], l.dir[1], l.dir[2]])}</td>` +
       `<td>${numBox("ldm", i, l.mag)}</td>` +
-      `<td><button type="button" class="ld-del" data-i="${i}" style="margin:0; padding:2px 8px; font-size:12px; background:${l.type === "force" ? "#1f7a1f" : "#8a2fc1"};">remove</button></td></tr>`
+      `<td><button type="button" class="ld-del ${l.type === "force" ? "btn-force" : "btn-displacement"}" data-i="${i}">remove</button></td></tr>`
     ).join("");
     loadListBox.innerHTML =
       `<table class="resultsTable"><thead><tr><th>Load</th><th>Type</th><th>Position (X, Y, Z)</th><th>Direction (X, Y, Z)</th><th>Magnitude</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -879,7 +988,6 @@ sweepForm.addEventListener("submit", async (e) => {
     if (!String(thk).trim() || !(Number(thk) > 0)) { fullInpMsg.textContent = "Enter the ply thickness in the Layup section first."; return; }
     const m = window.femCollectModel();
     m.layup = (document.getElementById("layupAngles") || {}).value || "";
-    m.nlgeom = true;
     fullInpMsg.textContent = "Assembling…";
     try {
       const res = await fetch("/inp_preview", {
@@ -990,13 +1098,12 @@ sweepForm.addEventListener("submit", async (e) => {
     if (!String(thk).trim() || !(Number(thk) > 0)) { msg.textContent = "Enter the ply thickness in the Layup section first."; return; }
     const layup = ((document.getElementById("layupAngles") || {}).value || "").trim();
     if (!layup) { msg.textContent = "Enter the ply angles in the Layup section first."; return; }
-    const out = document.getElementById("sim_output_folder").value.trim();
-    if (!out) { msg.textContent = "Enter an output folder."; return; }
+    const out = document.getElementById("run_output_folder").value.trim();
+    if (!out) { msg.textContent = "Enter an output folder in Run settings."; return; }
 
     m.layup = layup;
-    m.nlgeom = true;
     m.output_folder = out;
-    m.ccx_exe = document.getElementById("sim_ccx_exe").value;
+    m.ccx_exe = document.getElementById("run_ccx_exe").value;
 
     btn.disabled = true;
     logBox.style.display = "none";
@@ -1050,6 +1157,24 @@ sweepForm.addEventListener("submit", async (e) => {
       `<table class="resultsTable"><thead><tr>` +
       `<th>Support</th><th>Force X (N)</th><th>Force Y (N)</th><th>Force Z (N)</th><th>Total force (N)</th>` +
       `</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+})();
+</script>
+
+<!-- ===== Run settings: remember output folder + ccx path on this machine ===== -->
+<script>
+(function () {
+  const FIELDS = { run_output_folder: "femRunOutputFolder", run_ccx_exe: "femRunCcxExe" };
+  for (const [id, key] of Object.entries(FIELDS)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved) el.value = saved;
+    } catch (_) {}
+    const save = () => { try { localStorage.setItem(key, el.value); } catch (_) {} };
+    el.addEventListener("change", save);
+    el.addEventListener("blur", save);
   }
 })();
 </script>

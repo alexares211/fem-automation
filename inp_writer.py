@@ -291,14 +291,55 @@ def load_cards(loads):
     return "\n".join(out)
 
 
+# A plate goes geometrically nonlinear once its out-of-plane deflection is a
+# meaningful fraction of its thickness; 0.5 is the usual rule of thumb.
+NLGEOM_DEFLECTION_RATIO = 0.5
+
+
+def auto_nlgeom(loads, ply_thickness, ply_angles, symmetric=False):
+    """Decide whether the step needs *Nlgeom, without solving first.
+
+    - any non-zero point force  -> on (the deflection it causes is unknown, so
+      assume it matters)
+    - any prescribed displacement >= 0.5 x total laminate thickness -> on
+    - otherwise -> off (small-displacement, linear is fine and faster)
+    """
+    try:
+        t = float(ply_thickness)
+    except (TypeError, ValueError):
+        return False
+    n_plies = len(list(ply_angles)) * (2 if symmetric else 1)
+    total_t = t * max(n_plies, 1)
+
+    for ld in loads or []:
+        typ = (ld.get("type") or "").strip().lower()
+        try:
+            mag = abs(float(ld.get("mag") or 0))
+        except (TypeError, ValueError):
+            return True  # unparseable -> be safe
+        if mag == 0:
+            continue
+        if typ == "force":
+            return True
+        if typ == "displacement" and mag >= NLGEOM_DEFLECTION_RATIO * total_t:
+            return True
+    return False
+
+
 def full_inp(nodes, elements, element_type, material_name, constants,
-             ply_angles, ply_thickness, lagers, symmetric=False, nlgeom=True,
+             ply_angles, ply_thickness, lagers, symmetric=False, nlgeom="auto",
              loads=None):
     """Assemble a complete, solvable CalculiX .inp from the browser's model:
     structured mesh + orthotropic material + composite layup + Festlager
     supports + point loads (force / prescribed displacement). Reaction force
     is written for LAGER_ALL via *Node print.
+
+    nlgeom: "auto" (decide from the imposed loads vs. laminate thickness),
+    or an explicit bool to force it.
     """
+    if nlgeom == "auto":
+        nlgeom = auto_nlgeom(loads, ply_thickness, ply_angles, symmetric)
+
     load_ns = load_nsets(loads)
     load_c = load_cards(loads)
     parts = [
@@ -313,7 +354,9 @@ def full_inp(nodes, elements, element_type, material_name, constants,
         material_block(material_name, constants),
         section_block(material_name, ply_angles, ply_thickness, symmetric),
         "*Step, Nlgeom" if nlgeom else "*Step",
-        "*Static",
+        # nonlinear: ramp the load in 10 increments so CalculiX can iterate
+        # (and auto-cut back) instead of applying everything at once
+        "*Static\n0.1, 1.0" if nlgeom else "*Static",
         lager_boundaries(lagers),
     ]
     if load_c:
