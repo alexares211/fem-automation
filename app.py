@@ -11,6 +11,7 @@ from ccx_runner import run_ccx_blocking
 from dat_parser import read_reaction_force, DatParseError
 from step_mesher import structured_grid, StepMeshError
 from inp_writer import material_block, section_block, full_inp, LAGER_ALL, InpWriteError
+from clt import optimise as clt_optimise, OBJECTIVES as CLT_OBJECTIVES, DEFAULT_ANGLES as CLT_DEFAULT_ANGLES, CLTError
 
 DEFAULT_CCX_EXE = r"D:\PrePoMax v2.5.0\Solver\ccx_dynamic.exe"
 MAX_COMBOS = 4028
@@ -25,7 +26,16 @@ GMSH_LOCK = threading.Lock()  # gmsh keeps global state -> serialise meshing cal
 
 @app.route("/")
 def index():
-    return render_template("index.html", default_ccx_exe=DEFAULT_CCX_EXE)
+    return render_template(
+        "index.html",
+        default_ccx_exe=DEFAULT_CCX_EXE,
+        clt_objectives=[(k, v[0]) for k, v in CLT_OBJECTIVES.items()],
+        clt_default_angles="/".join(_fmt_angle(a) for a in CLT_DEFAULT_ANGLES),
+    )
+
+
+def _fmt_angle(a):
+    return str(int(a)) if float(a) == int(a) else str(a)
 
 
 def _step_source():
@@ -127,6 +137,39 @@ def _parse_angles(text):
     if not vals:
         raise InpWriteError("Enter at least one ply angle.")
     return vals
+
+
+@app.route("/clt_optimize", methods=["POST"])
+def clt_optimize():
+    """Analytic Stage 1 (Classical Laminate Theory): for a fixed ply count,
+    find the orientation sequence that maximises a stiffness measure S read
+    off the laminate's ABD matrix. No CalculiX, no mesh -- closed form.
+    """
+    d = request.get_json(silent=True) or {}
+    c = d.get("constants") or {}
+
+    raw_angles = str(d.get("angles") or "").strip()
+    try:
+        angles = _parse_angles(raw_angles) if raw_angles else list(CLT_DEFAULT_ANGLES)
+    except InpWriteError as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+    try:
+        result = clt_optimise(
+            E1=c.get("E1"), E2=c.get("E2"), G12=c.get("G12"), nu12=c.get("nu12"),
+            n_plies=d.get("num_plies"),
+            ply_t=d.get("thickness"),
+            objective=(d.get("objective") or "Ex"),
+            angles=angles,
+            symmetric=bool(d.get("symmetric")),
+            top=int(d.get("top") or 10),
+        )
+    except CLTError as e:
+        return jsonify({"ok": False, "error": str(e)})
+    except (TypeError, ValueError) as e:
+        return jsonify({"ok": False, "error": "Bad input: " + str(e)})
+
+    return jsonify({"ok": True, **result})
 
 
 @app.route("/stop/<job_id>", methods=["POST"])

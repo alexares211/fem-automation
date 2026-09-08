@@ -49,6 +49,12 @@
       border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,194,233,0.15);
     }
     input::placeholder { color: var(--text-mut); }
+    select {
+      width: 100%; padding: 9px 11px; font-size: 13.5px; font-family: inherit;
+      color: var(--text); background: var(--inset);
+      border: 1px solid var(--field); border-radius: 7px; outline: none;
+    }
+    select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(18,194,233,0.15); }
     .row { display: flex; gap: 14px; }
     .row > div { flex: 1; }
     .check { display: flex; align-items: center; gap: 8px; margin-top: 14px;
@@ -302,6 +308,59 @@
 
       <div id="sweepProgress" class="progress-line"></div>
       <div id="sweepTableBox" class="table-wrap"></div>
+    </section>
+
+    <section class="panel" id="cltSection">
+      <div class="sec-head"><span class="sec-num">07</span><h2 class="sec-title">CLT Stiffness Optimization</h2></div>
+      <p class="sec-note">
+        Analytic Classical Laminate Theory &mdash; no CalculiX, no mesh. For a
+        fixed ply count it assembles every candidate laminate's <code>ABD</code>
+        matrix in closed form and ranks by the chosen stiffness measure
+        <code>S</code>. Uses the material from section&nbsp;02 and the ply
+        thickness from section&nbsp;03.
+      </p>
+
+      <div class="row">
+        <div>
+          <label for="clt_num_plies">Plies (N)</label>
+          <input type="number" id="clt_num_plies" value="8" step="1" min="1">
+        </div>
+        <div style="flex:2;">
+          <label for="clt_objective">Maximize S</label>
+          <select id="clt_objective">
+            {% for key, label in clt_objectives %}
+            <option value="{{ key }}"{% if key == 'Ex' %} selected{% endif %}>{{ key }} &mdash; {{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px; align-items:flex-end;">
+        <div style="flex:2;">
+          <label for="clt_angles">Candidate angles &deg; &mdash; domain 0&ndash;180</label>
+          <input type="text" id="clt_angles" value="{{ clt_default_angles }}">
+        </div>
+        <label class="check" style="margin-bottom:9px;">
+          <input type="checkbox" id="clt_symmetric" checked> Symmetric (B&nbsp;=&nbsp;0, mirror half-stack)
+        </label>
+      </div>
+      <div class="hint">
+        Ply stiffness is 180&deg;-periodic, so the set spans <code>0&ndash;180</code>
+        (180 &equiv; 0); angles fold into that range, so <code>-45</code> may be
+        typed and becomes <code>135</code>. Default is 15&deg; steps &mdash; widen
+        to 30&deg; (<code>0/30/60/90/120/150</code>) for big stacks.
+        Single-entry objectives (<code>A11</code>, <code>A22</code>,
+        <code>A66</code>, <code>D11</code>) solve layer-by-layer for any N;
+        coupled ones (<code>Ex</code>, <code>Ey</code>, <code>Gxy</code>,
+        <code>A11+A22</code>) enumerate <code>angles<sup>free&nbsp;plies</sup></code>
+        &mdash; keep that under a few&nbsp;&times;10<sup>6</sup> (symmetry halves the exponent).
+      </div>
+
+      <div style="margin-top:16px;"><button type="button" class="btn-run" id="cltBtn" style="margin-top:0;">Optimize (analytic)</button></div>
+
+      <div id="cltMsg" class="progress-line"></div>
+      <div id="cltSummary" class="table-wrap" style="margin-top:12px;"></div>
+      <div id="cltAbd"></div>
+      <div id="cltTableBox" class="table-wrap"></div>
     </section>
 
     <div class="overlay" id="overlay">
@@ -1180,6 +1239,95 @@ sweepForm.addEventListener("submit", async (e) => {
     el.addEventListener("change", save);
     el.addEventListener("blur", save);
   }
+})();
+</script>
+
+<!-- ===== CLT Stiffness Optimization: analytic Stage 1 (no CalculiX) ===== -->
+<script>
+(function () {
+  const btn = document.getElementById("cltBtn");
+  if (!btn) return;
+  const msg = document.getElementById("cltMsg");
+  const summaryBox = document.getElementById("cltSummary");
+  const abdBox = document.getElementById("cltAbd");
+  const tableBox = document.getElementById("cltTableBox");
+
+  const sci = (v) => Number(v).toExponential(4);
+  const seqStr = (arr) => "[ " + arr.map(a => fmtNum(a, 0) + "°").join(" / ") + " ]";
+
+  function mat3(name, m, unit) {
+    const body = m.map(r =>
+      "<tr>" + r.map(v => `<td>${sci(v)}</td>`).join("") + "</tr>"
+    ).join("");
+    return `<div style="flex:1 1 220px; min-width:210px;">
+      <div class="hint" style="margin:0 0 4px;">${name} &nbsp;<span style="opacity:.7;">${unit}</span></div>
+      <table class="resultsTable"><tbody>${body}</tbody></table></div>`;
+  }
+
+  btn.addEventListener("click", async () => {
+    const m = window.femCollectModel ? window.femCollectModel() : {};
+    const thk = (document.getElementById("layupThk") || {}).value;
+    if (!String(thk).trim() || !(Number(thk) > 0)) {
+      msg.innerHTML = `<span class="row-error">Enter the ply thickness in section 03 first.</span>`;
+      return;
+    }
+    const payload = {
+      constants: m.constants,
+      num_plies: document.getElementById("clt_num_plies").value,
+      thickness: thk,
+      objective: document.getElementById("clt_objective").value,
+      angles: document.getElementById("clt_angles").value,
+      symmetric: document.getElementById("clt_symmetric").checked,
+      top: 15,
+    };
+
+    btn.disabled = true;
+    msg.textContent = "Assembling ABD over all candidate sequences…";
+    summaryBox.innerHTML = ""; abdBox.innerHTML = ""; tableBox.innerHTML = "";
+
+    try {
+      const res = await fetch("/clt_optimize", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        msg.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`;
+        btn.disabled = false;
+        return;
+      }
+
+      msg.textContent =
+        `${Number(data.num_candidates).toLocaleString()} evaluations · ${data.method} · ` +
+        `laminate thickness ${fmtNum(data.laminate_thickness, 4)} mm`;
+
+      const e = data.eff;
+      summaryBox.innerHTML =
+        `<table class="resultsTable"><tbody>
+          <tr><td>Best stacking sequence (ply 1 outward)</td><td><strong>${escapeHtml(seqStr(data.best_sequence))}</strong>${data.symmetric ? " &nbsp;<span class='hint'>symmetric</span>" : ""}</td></tr>
+          <tr><td><strong>${escapeHtml(data.objective)}</strong> &mdash; ${escapeHtml(data.objective_label)}</td><td><strong>${sci(data.best_S)}</strong></td></tr>
+          <tr><td>Effective E<sub>x</sub> / E<sub>y</sub> / G<sub>xy</sub> (MPa)</td><td>${fmtNum(e.Ex, 1)} / ${fmtNum(e.Ey, 1)} / ${fmtNum(e.Gxy, 1)}</td></tr>
+          <tr><td>Effective &nu;<sub>xy</sub></td><td>${fmtNum(e.nu_xy, 4)}</td></tr>
+        </tbody></table>`;
+
+      abdBox.innerHTML =
+        `<div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+          ${mat3("A", data.A, "[N/mm]")}${mat3("B", data.B, "[N]")}${mat3("D", data.D, "[N&middot;mm]")}
+        </div>`;
+
+      const rows = data.ranked.map(r =>
+        `<tr><td>${r.rank}</td><td>${escapeHtml(seqStr(r.angles))}</td><td>${sci(r.S)}</td></tr>`
+      ).join("");
+      tableBox.innerHTML =
+        `<table class="resultsTable"><thead><tr>` +
+        `<th>Rank</th><th>Sequence</th><th>${escapeHtml(data.objective)}</th>` +
+        `</tr></thead><tbody>${rows}</tbody></table>`;
+    } catch (err) {
+      msg.innerHTML = `<span class="row-error">${escapeHtml(String(err))}</span>`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
 })();
 </script>
 
