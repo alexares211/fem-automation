@@ -1,20 +1,18 @@
 import os
-import json
-import math
 import uuid
-import itertools
 import threading
+import numpy as np
 from flask import Flask, render_template, request, jsonify
 
-from ply_orientation import angle_range, PlyEditError
 from ccx_runner import run_ccx_blocking
 from dat_parser import read_reaction_force, DatParseError
 from step_mesher import structured_grid, StepMeshError
 from inp_writer import material_block, section_block, full_inp, LAGER_ALL, InpWriteError
-from clt import optimise as clt_optimise, OBJECTIVES as CLT_OBJECTIVES, DEFAULT_ANGLES as CLT_DEFAULT_ANGLES, CLTError
+from surrogate import (
+    make_ccx_evaluator, bayesian_optimise, genetic_search_then_verify, SurrogateError,
+)
 
 DEFAULT_CCX_EXE = r"D:\PrePoMax v2.5.0\Solver\ccx_dynamic.exe"
-MAX_COMBOS = 4028
 STEP_UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 
 app = Flask(__name__)
@@ -26,22 +24,13 @@ GMSH_LOCK = threading.Lock()  # gmsh keeps global state -> serialise meshing cal
 
 @app.route("/")
 def index():
-    return render_template(
-        "index.html",
-        default_ccx_exe=DEFAULT_CCX_EXE,
-        clt_objectives=[(k, v[0]) for k, v in CLT_OBJECTIVES.items()],
-        clt_default_angles="/".join(_fmt_angle(a) for a in CLT_DEFAULT_ANGLES),
-    )
-
-
-def _fmt_angle(a):
-    return str(int(a)) if float(a) == int(a) else str(a)
+    return render_template("index.html", default_ccx_exe=DEFAULT_CCX_EXE)
 
 
 def _step_source():
     """Return (step_path, spacing) from a multipart upload or JSON body.
     An uploaded file is saved under uploads/ and its path returned, so the
-    same file can be re-meshed for the sweep without re-uploading.
+    same file can be re-meshed later without re-uploading.
     """
     uploaded = request.files.get("step_file")
     if uploaded is not None:
@@ -139,156 +128,92 @@ def _parse_angles(text):
     return vals
 
 
-@app.route("/clt_optimize", methods=["POST"])
-def clt_optimize():
-    """Analytic Stage 1 (Classical Laminate Theory): for a fixed ply count,
-    find the orientation sequence that maximises a stiffness measure S read
-    off the laminate's ABD matrix. No CalculiX, no mesh -- closed form.
-    """
-    d = request.get_json(silent=True) or {}
-    c = d.get("constants") or {}
-
-    raw_angles = str(d.get("angles") or "").strip()
-    try:
-        angles = _parse_angles(raw_angles) if raw_angles else list(CLT_DEFAULT_ANGLES)
-    except InpWriteError as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-    try:
-        result = clt_optimise(
-            E1=c.get("E1"), E2=c.get("E2"), G12=c.get("G12"), nu12=c.get("nu12"),
-            n_plies=d.get("num_plies"),
-            ply_t=d.get("thickness"),
-            objective=(d.get("objective") or "Ex"),
-            angles=angles,
-            symmetric=bool(d.get("symmetric")),
-            top=int(d.get("top") or 10),
-        )
-    except CLTError as e:
-        return jsonify({"ok": False, "error": str(e)})
-    except (TypeError, ValueError) as e:
-        return jsonify({"ok": False, "error": "Bad input: " + str(e)})
-
-    return jsonify({"ok": True, **result})
-
-
-@app.route("/stop/<job_id>", methods=["POST"])
-def stop(job_id):
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
-    if job is None:
-        return jsonify({"ok": False, "error": "Unknown job id."})
-    job["cancel_event"].set()
-    return jsonify({"ok": True})
-
-
-# ---------- angle sweep ----------
-
-def run_sweep(job_id, model, output_folder, combos, ccx_exe):
-    """model: dict with nodes, elements, element_type, material_name,
-    constants, thickness, symmetric, lagers (list of
-    {index, node, type}). One full .inp is assembled and solved per angle
-    combination; reaction force is read at each Lager and reported per
-    Lager index (not per node id).
+def run_bo(job_id, model, output_folder, ccx_exe, n_plies, symmetric, method, params):
+    """Background worker: builds the real ccx evaluator for this part's
+    model (whatever its geometry, Lager placement and loads are) and runs
+    either sequential Bayesian Optimization or the genetic
+    search-then-verify pattern against it, streaming every real evaluation
+    into job["history"] as it happens so /bo_status can show live progress
+    -- one real CalculiX solve per row.
     """
     with JOBS_LOCK:
         job = JOBS[job_id]
 
-    lager_node = {int(lg["node"]): int(lg["index"]) for lg in model["lagers"]}
+    def on_eval(entry):
+        job["history"].append(entry)
+        job["current_index"] = entry.get("n_evaluations", len(job["history"])) - 1
 
     try:
         os.makedirs(output_folder, exist_ok=True)
+        evaluator = make_ccx_evaluator(
+            model, ccx_exe, output_folder,
+            reduce=params.get("reduce", "sum"), cancel_event=job["cancel_event"],
+        )
+        rng = np.random.default_rng(params["seed"]) if params.get("seed") is not None else None
 
-        for i, combo in enumerate(combos):
-            if job["cancel_event"].is_set():
-                break
-
-            job["current_index"] = i
-            job["current_combo"] = list(combo)
-            combo_num = i + 1
-
-            suffix = "_".join(str(a).replace("-", "m").replace(".", "p") for a in combo)
-            output_path = os.path.join(output_folder, "sweep_" + suffix + "deg.inp")
-
-            def add_result(rf_by_lager=None, error=None):
-                job["results"].append({
-                    "combo": combo_num,
-                    "angles": list(combo),
-                    "rf_by_lager": rf_by_lager or {},
-                    "error": error,
-                })
-
-            try:
-                text = full_inp(
-                    model["nodes"], model["elements"], model["element_type"],
-                    model["material_name"], model["constants"],
-                    list(combo), model["thickness"], model["lagers"],
-                    model["symmetric"], "auto", model["loads"],
-                )
-                with open(output_path, "w") as f:
-                    f.write(text)
-            except InpWriteError as e:
-                add_result(error=str(e))
-                continue
-
-            run_result = run_ccx_blocking(output_path, ccx_exe, cancel_event=job["cancel_event"])
-            job["log_tail"] = run_result["output_tail"]
-
-            if run_result["stopped"]:
-                add_result(error="Stopped by user")
-                break
-
-            if run_result["has_error"] or not run_result["converged"]:
-                add_result(error="CalculiX did not converge cleanly")
-                continue
-
-            dat_path = os.path.splitext(output_path)[0] + ".dat"
-            try:
-                rf = read_reaction_force(dat_path, LAGER_ALL)
-                rf_by_lager = {}
-                for node_id, (fx, fy, fz) in rf["per_node"].items():
-                    idx = lager_node.get(int(node_id))
-                    if idx is not None:
-                        rf_by_lager[str(idx)] = math.sqrt(fx ** 2 + fy ** 2 + fz ** 2)
-                add_result(rf_by_lager=rf_by_lager)
-            except DatParseError as e:
-                add_result(error="Could not read reaction force: " + str(e))
-
-        try:
-            with open(os.path.join(output_folder, "sweep_results.json"), "w") as f:
-                json.dump(job["results"], f, indent=2)
-        except OSError:
-            pass
-
+        if method == "bayesian":
+            result = bayesian_optimise(
+                evaluator, n_plies, symmetric=symmetric,
+                n_init=params["n_init"], n_iter=params["n_iter"],
+                xi=params["xi"], rng=rng, on_eval=on_eval,
+            )
+        else:
+            result = genetic_search_then_verify(
+                evaluator, n_plies, symmetric=symmetric,
+                n_init=params["n_init"], pop_size=params["pop_size"],
+                n_generations=params["n_generations"], top_k=params["top_k"],
+                rng=rng, on_eval=on_eval,
+            )
+        job["result"] = result
+    except SurrogateError as e:
+        job["error"] = str(e)
     except Exception as e:
         job["error"] = str(e)
     finally:
         job["done"] = True
 
 
-@app.route("/sweep_start", methods=["POST"])
-def sweep_start():
+@app.route("/bo_start", methods=["POST"])
+def bo_start():
+    """Start a stacking-sequence search (Bayesian Optimization, or genetic
+    search-then-verify) against the real CalculiX pipeline for whatever
+    part is currently loaded -- its mesh, Lager placement and loads, not a
+    fixed example. Each candidate stacking sequence costs one real ccx
+    solve, so this runs as a background job polled via /bo_status.
+    """
     data = request.get_json() or {}
     output_folder = (data.get("output_folder") or "").strip()
     ccx_exe = (data.get("ccx_exe") or "").strip() or DEFAULT_CCX_EXE
     source_path = (data.get("source_path") or "").strip().strip('"')
+    method = (data.get("method") or "bayesian").strip().lower()
+    if method not in ("bayesian", "genetic"):
+        return jsonify({"ok": False, "error": "method must be 'bayesian' or 'genetic'."})
 
     try:
-        angle_min = float(data.get("angle_min"))
-        angle_max = float(data.get("angle_max"))
-        angle_step = float(data.get("angle_step"))
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "error": "Angle min/max/step must be numbers."})
-
-    try:
-        num_plies = int(data.get("num_plies") or 1)
-        if num_plies < 1:
+        n_plies = int(data.get("num_plies") or 1)
+        if n_plies < 1:
             raise ValueError
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "Number of plies must be a whole number of at least 1."})
 
+    try:
+        params = {
+            "reduce": (data.get("reduce") or "sum").strip().lower(),
+            "seed": int(data["seed"]) if str(data.get("seed") or "").strip() else None,
+            "n_init": int(data.get("n_init") or (8 if method == "bayesian" else 20)),
+            "n_iter": int(data.get("n_iter") or 15),
+            "xi": float(data.get("xi") or 0.01),
+            "pop_size": int(data.get("pop_size") or 200),
+            "n_generations": int(data.get("n_generations") or 60),
+            "top_k": int(data.get("top_k") or 3),
+        }
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Bad numeric input in the optimization settings."})
+    if params["reduce"] not in ("sum", "max"):
+        return jsonify({"ok": False, "error": "reduce must be 'sum' or 'max'."})
+
     if not output_folder:
-        return jsonify({"ok": False, "error": "Please provide an output folder for the sweep."})
+        return jsonify({"ok": False, "error": "Please provide an output folder for the search."})
     if not source_path or not os.path.isfile(source_path):
         return jsonify({"ok": False, "error": "Process a STEP file first (no meshed geometry)."})
     lagers = data.get("lagers") or []
@@ -297,26 +222,12 @@ def sweep_start():
         return jsonify({"ok": False, "error": "Place at least one Festlager on the model first."})
 
     try:
-        angles = angle_range(angle_min, angle_max, angle_step)
-    except PlyEditError as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-    combo_count = len(angles) ** num_plies
-    if combo_count > MAX_COMBOS:
-        return jsonify({"ok": False, "error": (
-            f"{combo_count} combinations ({len(angles)} angles ^ {num_plies} plies) "
-            f"exceeds the {MAX_COMBOS} limit. Reduce the angle range/step or ply count."
-        )})
-
-    # build the fixed part of the model once (the grid doesn't change per combo)
-    try:
         with GMSH_LOCK:
             grid = structured_grid(source_path, spacing=data.get("spacing", "1"))
-        # validate material + supports up front by assembling one .inp
         full_inp(
             grid["nodes"], grid["elements"], grid["element_type"],
             data.get("material_name"), data.get("constants"),
-            [0.0] * num_plies, data.get("thickness"),
+            [0.0] * n_plies, data.get("thickness"),
             lagers, bool(data.get("symmetric")), "auto", loads,
         )
     except (StepMeshError, InpWriteError) as e:
@@ -333,14 +244,19 @@ def sweep_start():
         "lagers": lagers,
         "loads": loads,
     }
-    combos = list(itertools.product(angles, repeat=num_plies))
+
+    # planned real-solve count, known up front: bayesian is init + every EI
+    # step; genetic is init (real solves used to fit the GP) + the top_k
+    # winners confirmed for real at the end (the GA generations in between
+    # only ever touch the free surrogate, not ccx).
+    total = params["n_init"] + (params["n_iter"] if method == "bayesian" else params["top_k"])
 
     job_id = uuid.uuid4().hex
     job = {
-        "results": [],
-        "total": len(combos),
+        "history": [],
+        "result": None,
         "current_index": -1,
-        "current_combo": None,
+        "total": total,
         "done": False,
         "cancel_event": threading.Event(),
         "log_tail": "",
@@ -350,30 +266,39 @@ def sweep_start():
         JOBS[job_id] = job
 
     threading.Thread(
-        target=run_sweep, args=(job_id, model, output_folder, combos, ccx_exe), daemon=True
+        target=run_bo,
+        args=(job_id, model, output_folder, ccx_exe, n_plies, bool(data.get("symmetric")), method, params),
+        daemon=True,
     ).start()
 
-    return jsonify({"ok": True, "job_id": job_id, "total": len(combos)})
+    return jsonify({"ok": True, "job_id": job_id, "method": method})
 
 
-@app.route("/sweep_status/<job_id>")
-def sweep_status(job_id):
+@app.route("/bo_status/<job_id>")
+def bo_status(job_id):
     with JOBS_LOCK:
         job = JOBS.get(job_id)
     if job is None:
-        return jsonify({"ok": False, "error": "Unknown sweep job id."})
-    return jsonify(
-        {
-            "ok": True,
-            "done": job["done"],
-            "total": job["total"],
-            "current_index": job["current_index"],
-            "current_combo": job["current_combo"],
-            "results": job["results"],
-            "log_tail": job["log_tail"],
-            "fatal_error": job["error"],
-        }
-    )
+        return jsonify({"ok": False, "error": "Unknown search job id."})
+    return jsonify({
+        "ok": True,
+        "done": job["done"],
+        "history": job["history"],
+        "current_index": job["current_index"],
+        "total": job["total"],
+        "result": job["result"],
+        "fatal_error": job["error"],
+    })
+
+
+@app.route("/stop/<job_id>", methods=["POST"])
+def stop(job_id):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if job is None:
+        return jsonify({"ok": False, "error": "Unknown job id."})
+    job["cancel_event"].set()
+    return jsonify({"ok": True})
 
 
 # ---------- single simulate ----------

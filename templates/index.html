@@ -103,6 +103,16 @@
     .pal-tile.t-displacement { background: #7a2fc1; border-color: #9a4fe0; }
 
     .hint { color: var(--text-mut); font-size: 13.5px; margin-top: 6px; }
+    details.advanced { margin-top: 14px; }
+    details.advanced > summary {
+      cursor: pointer; font-size: 12px; font-weight: 600; letter-spacing: 0.07em;
+      text-transform: uppercase; color: var(--text-dim); list-style: none;
+    }
+    details.advanced > summary::-webkit-details-marker { display: none; }
+    details.advanced > summary::before { content: "\25b8  "; color: var(--accent); }
+    details.advanced[open] > summary::before { content: "\25be  "; }
+    details.advanced > summary:hover { color: var(--text); }
+    details.advanced > .row { margin-top: 12px; }
     .progress-line { font-size: 13.5px; color: var(--text-dim); margin-top: 10px;
       font-variant-numeric: tabular-nums; }
     .row-error { color: var(--err); }
@@ -142,6 +152,14 @@
       text-transform: uppercase; font-size: 13px; }
     .overlay-elapsed { margin-top: 5px; font-size: 12px; color: var(--text-dim);
       font-variant-numeric: tabular-nums; }
+    .overlay-progress-wrap { display: none; width: 340px; max-width: 80vw; margin-top: 18px; }
+    .overlay-progress-track { width: 100%; height: 8px; border-radius: 5px;
+      background: var(--inset); border: 1px solid var(--border); overflow: hidden; }
+    .overlay-progress-fill { height: 100%; width: 0%; border-radius: 5px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-h));
+      transition: width .35s ease; }
+    .overlay-progress-label { margin-top: 7px; font-size: 12px; color: var(--text-dim);
+      text-align: center; font-variant-numeric: tabular-nums; }
     .overlay pre { width: 560px; max-width: 85vw; margin-top: 16px; }
     #stopBtnInner { background: var(--err); border-color: var(--err); color: #fff; }
     #stopBtnInner:hover { background: #ff7581; border-color: #ff7581; }
@@ -294,79 +312,59 @@
 
     <section class="panel" id="optSection">
       <div class="sec-head"><span class="sec-num">06</span><h2 class="sec-title">Parameter Optimization</h2></div>
-      <p class="sec-note">Solves every angle combination in the range and ranks by reaction force.</p>
-
-      <form id="sweepForm">
-        <div class="row">
-          <div><label for="angle_min">Start &deg;</label><input type="number" id="angle_min" value="-90" step="any"></div>
-          <div><label for="angle_max">End &deg;</label><input type="number" id="angle_max" value="90" step="any"></div>
-          <div><label for="angle_step">Step &deg;</label><input type="number" id="angle_step" value="15" step="any" min="0"></div>
-          <div><label for="num_plies">Plies</label><input type="number" id="num_plies" value="1" step="1" min="1"></div>
-        </div>
-        <div style="margin-top:16px;"><button type="submit" class="btn-run" id="sweepBtn">Run optimization</button></div>
-      </form>
-
-      <div id="sweepProgress" class="progress-line"></div>
-      <div id="sweepTableBox" class="table-wrap"></div>
-    </section>
-
-    <section class="panel" id="cltSection">
-      <div class="sec-head"><span class="sec-num">07</span><h2 class="sec-title">CLT Stiffness Optimization</h2></div>
-      <p class="sec-note">
-        Analytic Classical Laminate Theory &mdash; no CalculiX, no mesh. For a
-        fixed ply count it assembles every candidate laminate's <code>ABD</code>
-        matrix in closed form and ranks by the chosen stiffness measure
-        <code>S</code>. Uses the material from section&nbsp;02 and the ply
-        thickness from section&nbsp;03.
-      </p>
+      <p class="sec-note">Scores each stacking sequence with a real CalculiX solve, then searches instead of trying every combination.</p>
 
       <div class="row">
         <div>
-          <label for="clt_num_plies">Plies (N)</label>
-          <input type="number" id="clt_num_plies" value="8" step="1" min="1">
+          <label for="bo_num_plies">Plies (N)</label>
+          <input type="number" id="bo_num_plies" value="8" step="1" min="1">
         </div>
-        <div style="flex:2;">
-          <label for="clt_objective">Maximize S</label>
-          <select id="clt_objective">
-            {% for key, label in clt_objectives %}
-            <option value="{{ key }}"{% if key == 'Ex' %} selected{% endif %}>{{ key }} &mdash; {{ label }}</option>
-            {% endfor %}
+        <div>
+          <label for="bo_strategy">Strategy</label>
+          <select id="bo_strategy">
+            <option value="bayesian" selected>Bayesian Optimization (sequential)</option>
+            <option value="genetic">Search-then-verify (genetic algorithm)</option>
+          </select>
+        </div>
+        <div>
+          <label for="bo_reduce">Score</label>
+          <select id="bo_reduce">
+            <option value="sum" selected>sum of Lager reaction forces</option>
+            <option value="max">max Lager reaction force</option>
           </select>
         </div>
       </div>
-      <div class="row" style="margin-top:12px; align-items:flex-end;">
-        <div style="flex:2;">
-          <label for="clt_angles">Candidate angles &deg; &mdash; domain 0&ndash;180</label>
-          <input type="text" id="clt_angles" value="{{ clt_default_angles }}">
+      <div class="hint">Uses the material from section&nbsp;02, ply thickness and symmetry from section&nbsp;03. Each row is a real solve &mdash; expect seconds per row; stop any time and the best result so far is kept.</div>
+
+      <details class="advanced" id="bo_advanced">
+        <summary>Advanced (auto-set from Plies)</summary>
+        <div class="row" id="bo_bayes_fields">
+          <div><label for="bo_n_init">Initial samples</label><input type="number" id="bo_n_init" value="8" step="1" min="1"></div>
+          <div><label for="bo_n_iter">EI iterations</label><input type="number" id="bo_n_iter" value="15" step="1" min="0"></div>
+          <div><label for="bo_xi">Exploration &xi;</label><input type="number" id="bo_xi" value="0.01" step="0.005" min="0"></div>
         </div>
-        <label class="check" style="margin-bottom:9px;">
-          <input type="checkbox" id="clt_symmetric" checked> Symmetric (B&nbsp;=&nbsp;0, mirror half-stack)
-        </label>
-      </div>
-      <div class="hint">
-        Ply stiffness is 180&deg;-periodic, so the set spans <code>0&ndash;180</code>
-        (180 &equiv; 0); angles fold into that range, so <code>-45</code> may be
-        typed and becomes <code>135</code>. Default is 15&deg; steps &mdash; widen
-        to 30&deg; (<code>0/30/60/90/120/150</code>) for big stacks.
-        Single-entry objectives (<code>A11</code>, <code>A22</code>,
-        <code>A66</code>, <code>D11</code>) solve layer-by-layer for any N;
-        coupled ones (<code>Ex</code>, <code>Ey</code>, <code>Gxy</code>,
-        <code>A11+A22</code>) enumerate <code>angles<sup>free&nbsp;plies</sup></code>
-        &mdash; keep that under a few&nbsp;&times;10<sup>6</sup> (symmetry halves the exponent).
-      </div>
+        <div class="row" id="bo_genetic_fields" style="display:none;">
+          <div><label for="bo_pop_size">GA population</label><input type="number" id="bo_pop_size" value="200" step="10" min="10"></div>
+          <div><label for="bo_n_generations">GA generations</label><input type="number" id="bo_n_generations" value="60" step="5" min="1"></div>
+          <div><label for="bo_top_k">Verify top-k</label><input type="number" id="bo_top_k" value="3" step="1" min="1"></div>
+        </div>
+      </details>
 
-      <div style="margin-top:16px;"><button type="button" class="btn-run" id="cltBtn" style="margin-top:0;">Optimize (analytic)</button></div>
+      <div style="margin-top:16px;"><button type="button" class="btn-run" id="boBtn" style="margin-top:0;">Run optimization</button></div>
 
-      <div id="cltMsg" class="progress-line"></div>
-      <div id="cltSummary" class="table-wrap" style="margin-top:12px;"></div>
-      <div id="cltAbd"></div>
-      <div id="cltTableBox" class="table-wrap"></div>
+      <div id="boProgress" class="progress-line"></div>
+      <div id="boSummary" class="table-wrap" style="margin-top:12px;"></div>
+      <div id="boTableBox" class="table-wrap"></div>
     </section>
 
     <div class="overlay" id="overlay">
       <div class="spinner"></div>
       <div class="overlay-text" id="overlayText">Simulating&hellip;</div>
       <div class="overlay-elapsed" id="overlayElapsed">0s elapsed</div>
+      <div class="overlay-progress-wrap" id="overlayProgressWrap">
+        <div class="overlay-progress-track"><div class="overlay-progress-fill" id="overlayProgressFill"></div></div>
+        <div class="overlay-progress-label" id="overlayProgressLabel"></div>
+      </div>
       <pre id="liveLog"></pre>
       <button id="stopBtnInner">Stop</button>
     </div>
@@ -385,6 +383,9 @@
   const overlay = document.getElementById("overlay");
   const overlayText = document.getElementById("overlayText");
   const overlayElapsed = document.getElementById("overlayElapsed");
+  const overlayProgressWrap = document.getElementById("overlayProgressWrap");
+  const overlayProgressFill = document.getElementById("overlayProgressFill");
+  const overlayProgressLabel = document.getElementById("overlayProgressLabel");
   const liveLog = document.getElementById("liveLog");
   const stopBtnInner = document.getElementById("stopBtnInner");
 
@@ -406,6 +407,22 @@
       clearInterval(overlayTimer);
       overlayTimer = null;
     }
+    if (!show) clearOverlayProgress();
+  }
+
+  // step count + progress bar for jobs that know their total up front
+  // (e.g. optimization search: n_init + n_iter real solves)
+  function setOverlayProgress(current, total) {
+    if (!total || total <= 0) { clearOverlayProgress(); return; }
+    const pct = Math.max(0, Math.min(100, Math.round((current / total) * 100)));
+    overlayProgressWrap.style.display = "block";
+    overlayProgressFill.style.width = pct + "%";
+    overlayProgressLabel.textContent = `${current} / ${total} solves · ${pct}%`;
+  }
+  function clearOverlayProgress() {
+    overlayProgressWrap.style.display = "none";
+    overlayProgressFill.style.width = "0%";
+    overlayProgressLabel.textContent = "";
   }
 
   stopBtnInner.addEventListener("click", async () => {
@@ -415,189 +432,6 @@
     stopBtnInner.disabled = false;
   });
 
-  const sweepForm = document.getElementById("sweepForm");
-  const sweepInputs = sweepForm.querySelectorAll("input, button");
-  const sweepProgress = document.getElementById("sweepProgress");
-  const sweepTableBox = document.getElementById("sweepTableBox");
-
-  let sweepJobId = null;
-  let sweepPollTimer = null;
-  let sweepResults = [];
-  let sweepSort = { key: "combo", dir: "asc" };
-
-  function sortResults(results, key, dir) {
-    const copy = results.slice();
-    copy.sort((a, b) => {
-      let av = a[key], bv = b[key];
-      if (av === null || av === undefined) av = dir === "asc" ? Infinity : -Infinity;
-      if (bv === null || bv === undefined) bv = dir === "asc" ? Infinity : -Infinity;
-      if (av < bv) return dir === "asc" ? -1 : 1;
-      if (av > bv) return dir === "asc" ? 1 : -1;
-      return 0;
-    });
-    return copy;
-  }
-
-  // Backend emits one record per combination:
-  //   { combo, angles: [a1, a2, ...], rf_by_lager: { "1": rf, "2": rf }, error }
-  // Flatten to table rows: one column per ply angle, one column per Lager's RF.
-  function buildGroupedRows(results) {
-    let plyCount = 1;
-    const lagerIds = new Set();
-    for (const r of results) {
-      if (Array.isArray(r.angles)) plyCount = Math.max(plyCount, r.angles.length);
-      if (r.rf_by_lager) Object.keys(r.rf_by_lager).forEach(id => lagerIds.add(id));
-    }
-    const lagerList = [...lagerIds].sort((a, b) => Number(a) - Number(b));
-
-    const map = new Map();
-    for (const r of results) {
-      const row = { combo: r.combo, error: r.error || null };
-      for (let p = 1; p <= plyCount; p++) {
-        row["ply_" + p] = (Array.isArray(r.angles) && r.angles.length >= p) ? r.angles[p - 1] : null;
-      }
-      for (const id of lagerList) {
-        row["lager_" + id] = (r.rf_by_lager && id in r.rf_by_lager) ? r.rf_by_lager[id] : null;
-      }
-      map.set(r.combo, row);
-    }
-    return { rows: Array.from(map.values()), plyCount, lagerIds: lagerList };
-  }
-
-  function renderSweepTable() {
-    const { rows: grouped, plyCount, lagerIds } = buildGroupedRows(sweepResults);
-    const sorted = sortResults(grouped, sweepSort.key, sweepSort.dir);
-    const arrow = (key) => sweepSort.key === key ? (sweepSort.dir === "asc" ? "\u25b2" : "\u25bc") : "";
-    const errorColspan = Math.max(1, lagerIds.length);
-
-    let rows = sorted.map(r => {
-      let cells = `<td>${escapeHtml(r.combo)}</td>`;
-      for (let p = 1; p <= plyCount; p++) cells += `<td>${fmtNum(r["ply_" + p], 2)}&deg;</td>`;
-      if (r.error) {
-        cells += `<td class="row-error" colspan="${errorColspan}">${escapeHtml(r.error)}</td>`;
-        return `<tr>${cells}</tr>`;
-      }
-      for (const id of lagerIds) cells += `<td>${fmtNum(r["lager_" + id], 4)}</td>`;
-      return `<tr>${cells}</tr>`;
-    }).join("");
-
-    let headerCells = `<th data-key="combo">Combination <span class="sort-arrow">${arrow("combo")}</span></th>`;
-    for (let p = 1; p <= plyCount; p++) {
-      headerCells += `<th data-key="ply_${p}">Ply ${p} (&deg;) <span class="sort-arrow">${arrow("ply_" + p)}</span></th>`;
-    }
-    for (const id of lagerIds) {
-      headerCells += `<th data-key="lager_${id}">Lager ${escapeHtml(id)} RF (N) <span class="sort-arrow">${arrow("lager_" + id)}</span></th>`;
-    }
-
-    sweepTableBox.innerHTML = `<table class="resultsTable"><thead><tr>${headerCells}</tr></thead><tbody>${rows}</tbody></table>`;
-
-    sweepTableBox.querySelectorAll("th[data-key]").forEach(th => {
-      th.addEventListener("click", () => {
-        const key = th.getAttribute("data-key");
-        if (sweepSort.key === key) {
-          sweepSort.dir = sweepSort.dir === "asc" ? "desc" : "asc";
-        } else {
-          sweepSort.key = key;
-          sweepSort.dir = "asc";
-        }
-        renderSweepTable();
-    });
-  });
-}
-
-async function pollSweep() {
-  const res = await fetch(`/sweep_status/${sweepJobId}`);
-  const data = await res.json();
-  if (!data.ok) {
-    clearInterval(sweepPollTimer);
-    showOverlay(false);
-    setDisabled(sweepInputs, false);
-    sweepProgress.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`;
-    return;
-  }
-  sweepResults = data.results;
-  renderSweepTable();
-
-  const combosDone = new Set(data.results.map(r => r.combo)).size;
-  if (!data.done) {
-    const comboLabel = (data.current_combo === null || data.current_combo === undefined)
-      ? ""
-      : ` (${data.current_combo.map(a => fmtNum(a, 2) + "\u00b0").join(" / ")})`;
-    const label = `Running combination ${data.current_index + 1} of ${data.total}${comboLabel}\u2026`;
-    sweepProgress.textContent = `${combosDone} / ${data.total} combinations done`;
-    showOverlay(true, label);
-    liveLog.textContent = data.log_tail;
-  } else {
-    clearInterval(sweepPollTimer);
-    showOverlay(false);
-    setDisabled(sweepInputs, false);
-    if (data.fatal_error) {
-      sweepProgress.innerHTML = `<span class="row-error">Optimization aborted: ${escapeHtml(data.fatal_error)}</span>`;
-    } else {
-      sweepProgress.textContent = `Done -- ${combosDone} / ${data.total} combinations completed.`;
-    }
-  }
-}
-
-sweepForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  sweepResults = [];
-  sweepTableBox.innerHTML = "";
-  sweepProgress.textContent = "";
-  liveLog.textContent = "";
-  setDisabled(sweepInputs, true);
-  showOverlay(true, "Starting optimization\u2026");
-
-  const m = window.femCollectModel ? window.femCollectModel() : {};
-  if (!m.source_path) {
-    showOverlay(false);
-    setDisabled(sweepInputs, false);
-    sweepProgress.innerHTML = `<span class="row-error">Process a STEP file first (no meshed model).</span>`;
-    return;
-  }
-  if (!m.lagers || !m.lagers.length) {
-    showOverlay(false);
-    setDisabled(sweepInputs, false);
-    sweepProgress.innerHTML = `<span class="row-error">Drop at least one Festlager on the model first.</span>`;
-    return;
-  }
-  if (!String(m.thickness).trim() || !(Number(m.thickness) > 0)) {
-    showOverlay(false);
-    setDisabled(sweepInputs, false);
-    sweepProgress.innerHTML = `<span class="row-error">Enter the ply thickness in the Layup section first.</span>`;
-    return;
-  }
-  const payload = Object.assign({}, m, {
-    output_folder: document.getElementById("run_output_folder").value,
-    angle_min: document.getElementById("angle_min").value,
-    angle_max: document.getElementById("angle_max").value,
-    angle_step: document.getElementById("angle_step").value,
-    num_plies: document.getElementById("num_plies").value,
-    ccx_exe: document.getElementById("run_ccx_exe").value,
-  });
-
-  try {
-    const res = await fetch("/sweep_start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!data.ok) {
-      showOverlay(false);
-      setDisabled(sweepInputs, false);
-      sweepProgress.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`;
-      return;
-    }
-    sweepJobId = data.job_id;
-    activeStopUrl = `/stop/${sweepJobId}`;
-    sweepPollTimer = setInterval(pollSweep, 1200);
-  } catch (err) {
-    showOverlay(false);
-    setDisabled(sweepInputs, false);
-    sweepProgress.innerHTML = `<span class="row-error">${escapeHtml(String(err))}</span>`;
-  }
-});
 </script>
 
 <!-- ===== STEP -> structured grid + Festlager placement ===== -->
@@ -1023,7 +857,7 @@ sweepForm.addEventListener("submit", async (e) => {
     }));
   }
 
-  // ---- expose the on-page model for the .inp preview and the sweep ----
+  // ---- expose the on-page model for the .inp preview and the optimization search ----
   window.femCollectModel = function () {
     const v = id => { const el = document.getElementById(id); return el ? el.value : ""; };
     return {
@@ -1242,90 +1076,183 @@ sweepForm.addEventListener("submit", async (e) => {
 })();
 </script>
 
-<!-- ===== CLT Stiffness Optimization: analytic Stage 1 (no CalculiX) ===== -->
+<!-- ===== Parameter Optimization: data-driven / surrogate search (real CalculiX) ===== -->
 <script>
 (function () {
-  const btn = document.getElementById("cltBtn");
+  const btn = document.getElementById("boBtn");
   if (!btn) return;
-  const msg = document.getElementById("cltMsg");
-  const summaryBox = document.getElementById("cltSummary");
-  const abdBox = document.getElementById("cltAbd");
-  const tableBox = document.getElementById("cltTableBox");
+  const strategySel = document.getElementById("bo_strategy");
+  const bayesFields = document.getElementById("bo_bayes_fields");
+  const geneticFields = document.getElementById("bo_genetic_fields");
+  const progress = document.getElementById("boProgress");
+  const summaryBox = document.getElementById("boSummary");
+  const tableBox = document.getElementById("boTableBox");
 
-  const sci = (v) => Number(v).toExponential(4);
-  const seqStr = (arr) => "[ " + arr.map(a => fmtNum(a, 0) + "°").join(" / ") + " ]";
+  strategySel.addEventListener("change", () => {
+    const isBayes = strategySel.value === "bayesian";
+    bayesFields.style.display = isBayes ? "flex" : "none";
+    geneticFields.style.display = isBayes ? "none" : "flex";
+  });
 
-  function mat3(name, m, unit) {
-    const body = m.map(r =>
-      "<tr>" + r.map(v => `<td>${sci(v)}</td>`).join("") + "</tr>"
-    ).join("");
-    return `<div style="flex:1 1 220px; min-width:210px;">
-      <div class="hint" style="margin:0 0 4px;">${name} &nbsp;<span style="opacity:.7;">${unit}</span></div>
-      <table class="resultsTable"><tbody>${body}</tbody></table></div>`;
+  // ---- auto-set the advanced (Initial samples / EI iterations / Exploration /
+  // GA population / GA generations / Verify top-k) fields from how many free
+  // angles the search actually has to explore, so nobody has to understand the
+  // algorithm just to run it. Stops overwriting a field once the user has
+  // edited it by hand -- the "just in case" escape hatch stays untouched. ----
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(v)));
+  const advancedIds = ["bo_n_init", "bo_n_iter", "bo_xi", "bo_pop_size", "bo_n_generations", "bo_top_k"];
+  let advancedTouched = false;
+  advancedIds.forEach(id => {
+    document.getElementById(id).addEventListener("input", () => { advancedTouched = true; });
+  });
+
+  function freePlyCount() {
+    const n = Math.max(1, parseInt(document.getElementById("bo_num_plies").value, 10) || 1);
+    const symmetric = !!(document.getElementById("layupSym") || {}).checked;
+    return symmetric ? Math.ceil(n / 2) : n;
+  }
+
+  function applyAutoDefaults() {
+    if (advancedTouched) return;
+    const half = freePlyCount();
+    document.getElementById("bo_n_init").value = clamp(2 * half + 2, 6, 20);
+    document.getElementById("bo_n_iter").value = clamp(3 * half + 5, 10, 30);
+    document.getElementById("bo_xi").value = "0.01";
+    document.getElementById("bo_pop_size").value = clamp(25 * half, 100, 300);
+    document.getElementById("bo_n_generations").value = 60;
+    document.getElementById("bo_top_k").value = 3;
+  }
+  document.getElementById("bo_num_plies").addEventListener("input", applyAutoDefaults);
+  (document.getElementById("layupSym") || { addEventListener() {} }).addEventListener("change", applyAutoDefaults);
+  applyAutoDefaults();
+
+  const seqStr = (arr) => "[ " + arr.map(a => fmtNum(a, 1) + "°").join(" / ") + " ]";
+
+  let boJobId = null;
+  let boPollTimer = null;
+  let boHistoryLen = 0;
+
+  function renderHistory(history) {
+    let best = -Infinity;
+    const rows = history.map((h, i) => {
+      best = Math.max(best, h.S);
+      const isBest = h.S === best;
+      return `<tr${isBest ? ' style="color:var(--ok);"' : ""}><td>${i + 1}</td><td>${escapeHtml(h.source || "")}</td>` +
+        `<td>${escapeHtml(seqStr(h.angles))}</td><td>${fmtNum(h.S, 4)}</td></tr>`;
+    }).join("");
+    tableBox.innerHTML = `<table class="resultsTable"><thead><tr>` +
+      `<th>#</th><th>Source</th><th>Sequence</th><th>Score</th>` +
+      `</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function renderResult(result, method) {
+    if (!result) { summaryBox.innerHTML = `<div class="hint">No result -- stopped before any evaluation finished.</div>`; return; }
+    if (method === "bayesian") {
+      if (result.best_angles === null) { summaryBox.innerHTML = `<div class="hint">Stopped before any evaluation finished.</div>`; return; }
+      summaryBox.innerHTML = `<table class="resultsTable"><tbody>
+          <tr><td>Best sequence</td><td><strong>${escapeHtml(seqStr(result.best_angles))}</strong></td></tr>
+          <tr><td>Best score</td><td><strong>${fmtNum(result.best_S, 4)}</strong></td></tr>
+          <tr><td>Real evaluations</td><td>${result.n_evaluations}</td></tr>
+        </tbody></table>`;
+    } else {
+      const best = result.best;
+      summaryBox.innerHTML = best ? `<table class="resultsTable"><tbody>
+          <tr><td>Best verified sequence</td><td><strong>${escapeHtml(seqStr(best.angles))}</strong></td></tr>
+          <tr><td>Best score</td><td><strong>${fmtNum(best.S, 4)}</strong></td></tr>
+          <tr><td>Training points / verified</td><td>${result.surrogate_training_points} / ${result.verified.length}</td></tr>
+        </tbody></table>` : `<div class="hint">Stopped before any candidate was verified.</div>`;
+    }
+  }
+
+  async function pollBo() {
+    const res = await fetch(`/bo_status/${boJobId}`);
+    const data = await res.json();
+    if (!data.ok) {
+      clearInterval(boPollTimer);
+      showOverlay(false);
+      btn.disabled = false;
+      progress.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`;
+      return;
+    }
+    if (data.history.length !== boHistoryLen) {
+      boHistoryLen = data.history.length;
+      renderHistory(data.history);
+    }
+    if (!data.done) {
+      showOverlay(true, "Running optimization…");
+      setOverlayProgress(data.history.length, data.total);
+      progress.textContent = data.total
+        ? `${data.history.length} / ${data.total} real solve(s) done`
+        : `${data.history.length} real solve(s) done`;
+      liveLog.textContent = "";
+    } else {
+      clearInterval(boPollTimer);
+      showOverlay(false);
+      btn.disabled = false;
+      if (data.fatal_error) {
+        progress.innerHTML = `<span class="row-error">Search aborted: ${escapeHtml(data.fatal_error)}</span>`;
+      } else {
+        const stoppedNote = data.result && data.result.stopped ? " (stopped early by user)" : "";
+        progress.textContent = `Done -- ${data.history.length} real solve(s) completed${stoppedNote}.`;
+        renderResult(data.result, strategySel.value);
+      }
+    }
   }
 
   btn.addEventListener("click", async () => {
+    boHistoryLen = 0;
+    tableBox.innerHTML = ""; summaryBox.innerHTML = ""; progress.textContent = ""; liveLog.textContent = "";
+
     const m = window.femCollectModel ? window.femCollectModel() : {};
-    const thk = (document.getElementById("layupThk") || {}).value;
-    if (!String(thk).trim() || !(Number(thk) > 0)) {
-      msg.innerHTML = `<span class="row-error">Enter the ply thickness in section 03 first.</span>`;
+    if (!m.source_path) {
+      progress.innerHTML = `<span class="row-error">Process a STEP file first (no meshed model).</span>`;
       return;
     }
-    const payload = {
-      constants: m.constants,
-      num_plies: document.getElementById("clt_num_plies").value,
-      thickness: thk,
-      objective: document.getElementById("clt_objective").value,
-      angles: document.getElementById("clt_angles").value,
-      symmetric: document.getElementById("clt_symmetric").checked,
-      top: 15,
-    };
+    if (!m.lagers || !m.lagers.length) {
+      progress.innerHTML = `<span class="row-error">Drop at least one Festlager on the model first.</span>`;
+      return;
+    }
+    if (!String(m.thickness).trim() || !(Number(m.thickness) > 0)) {
+      progress.innerHTML = `<span class="row-error">Enter the ply thickness in the Layup section first.</span>`;
+      return;
+    }
+
+    const method = strategySel.value;
+    const payload = Object.assign({}, m, {
+      output_folder: document.getElementById("run_output_folder").value,
+      ccx_exe: document.getElementById("run_ccx_exe").value,
+      num_plies: document.getElementById("bo_num_plies").value,
+      reduce: document.getElementById("bo_reduce").value,
+      method: method,
+      n_init: document.getElementById("bo_n_init").value,
+      n_iter: document.getElementById("bo_n_iter").value,
+      xi: document.getElementById("bo_xi").value,
+      pop_size: document.getElementById("bo_pop_size").value,
+      n_generations: document.getElementById("bo_n_generations").value,
+      top_k: document.getElementById("bo_top_k").value,
+    });
 
     btn.disabled = true;
-    msg.textContent = "Assembling ABD over all candidate sequences…";
-    summaryBox.innerHTML = ""; abdBox.innerHTML = ""; tableBox.innerHTML = "";
-
+    showOverlay(true, "Starting search…");
     try {
-      const res = await fetch("/clt_optimize", {
+      const res = await fetch("/bo_start", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!data.ok) {
-        msg.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`;
+        showOverlay(false);
         btn.disabled = false;
+        progress.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`;
         return;
       }
-
-      msg.textContent =
-        `${Number(data.num_candidates).toLocaleString()} evaluations · ${data.method} · ` +
-        `laminate thickness ${fmtNum(data.laminate_thickness, 4)} mm`;
-
-      const e = data.eff;
-      summaryBox.innerHTML =
-        `<table class="resultsTable"><tbody>
-          <tr><td>Best stacking sequence (ply 1 outward)</td><td><strong>${escapeHtml(seqStr(data.best_sequence))}</strong>${data.symmetric ? " &nbsp;<span class='hint'>symmetric</span>" : ""}</td></tr>
-          <tr><td><strong>${escapeHtml(data.objective)}</strong> &mdash; ${escapeHtml(data.objective_label)}</td><td><strong>${sci(data.best_S)}</strong></td></tr>
-          <tr><td>Effective E<sub>x</sub> / E<sub>y</sub> / G<sub>xy</sub> (MPa)</td><td>${fmtNum(e.Ex, 1)} / ${fmtNum(e.Ey, 1)} / ${fmtNum(e.Gxy, 1)}</td></tr>
-          <tr><td>Effective &nu;<sub>xy</sub></td><td>${fmtNum(e.nu_xy, 4)}</td></tr>
-        </tbody></table>`;
-
-      abdBox.innerHTML =
-        `<div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
-          ${mat3("A", data.A, "[N/mm]")}${mat3("B", data.B, "[N]")}${mat3("D", data.D, "[N&middot;mm]")}
-        </div>`;
-
-      const rows = data.ranked.map(r =>
-        `<tr><td>${r.rank}</td><td>${escapeHtml(seqStr(r.angles))}</td><td>${sci(r.S)}</td></tr>`
-      ).join("");
-      tableBox.innerHTML =
-        `<table class="resultsTable"><thead><tr>` +
-        `<th>Rank</th><th>Sequence</th><th>${escapeHtml(data.objective)}</th>` +
-        `</tr></thead><tbody>${rows}</tbody></table>`;
+      boJobId = data.job_id;
+      activeStopUrl = `/stop/${boJobId}`;
+      boPollTimer = setInterval(pollBo, 1200);
     } catch (err) {
-      msg.innerHTML = `<span class="row-error">${escapeHtml(String(err))}</span>`;
-    } finally {
+      showOverlay(false);
       btn.disabled = false;
+      progress.innerHTML = `<span class="row-error">${escapeHtml(String(err))}</span>`;
     }
   });
 })();
