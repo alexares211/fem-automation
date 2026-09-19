@@ -156,6 +156,7 @@ def run_bo(job_id, model, output_folder, ccx_exe, n_plies, symmetric, method, pa
                 evaluator, n_plies, symmetric=symmetric,
                 n_init=params["n_init"], n_iter=params["n_iter"],
                 xi=params["xi"], rng=rng, on_eval=on_eval,
+                angle_step=params["angle_step"],
             )
         else:
             result = genetic_search_then_verify(
@@ -163,6 +164,7 @@ def run_bo(job_id, model, output_folder, ccx_exe, n_plies, symmetric, method, pa
                 n_init=params["n_init"], pop_size=params["pop_size"],
                 n_generations=params["n_generations"], top_k=params["top_k"],
                 rng=rng, on_eval=on_eval,
+                angle_step=params["angle_step"],
             )
         job["result"] = result
     except SurrogateError as e:
@@ -206,11 +208,14 @@ def bo_start():
             "pop_size": int(data.get("pop_size") or 200),
             "n_generations": int(data.get("n_generations") or 60),
             "top_k": int(data.get("top_k") or 3),
+            "angle_step": float(data["angle_step"]) if str(data.get("angle_step") or "").strip() else None,
         }
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "Bad numeric input in the optimization settings."})
     if params["reduce"] not in ("sum", "max"):
         return jsonify({"ok": False, "error": "reduce must be 'sum' or 'max'."})
+    if params["angle_step"] is not None and not (0 < params["angle_step"] <= 180):
+        return jsonify({"ok": False, "error": "Angle step must be a positive number, at most 180."})
 
     if not output_folder:
         return jsonify({"ok": False, "error": "Please provide an output folder for the search."})

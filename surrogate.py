@@ -62,6 +62,24 @@ def _free_index(k, n_plies, half, symmetric):
     return k if (not symmetric or k < half) else (n_plies - 1 - k)
 
 
+def snap_to_grid(angles, step):
+    """Round `angles` to the nearest multiple of `step`, wrapped into the
+    [0, 180) period (a ply at 180 deg is physically the same orientation as
+    0 deg -- see expand_free/_ANGLE_PERIOD). `step=None` or `0` disables
+    snapping (the default -- continuous search, unchanged behaviour).
+
+    Applied everywhere a candidate angle is *generated* (DoE, GA population
+    init, mutation, the Bayesian candidate pool) so every angle that ever
+    reaches a real CalculiX solve sits on the user's requested grid (e.g.
+    0/15/30/.../165 for a 15 deg step) instead of the raw continuous values
+    LHS/GA/EI would otherwise produce.
+    """
+    if not step:
+        return angles
+    arr = np.asarray(angles, dtype=float)
+    return np.round(arr / float(step)) * float(step) % _ANGLE_PERIOD
+
+
 def expand_free(free_angles, n_plies, symmetric):
     """A length-`half` vector of free-ply angles -> the full length-N
     stacking sequence (mirrored if symmetric)."""
@@ -267,7 +285,7 @@ def expected_improvement(mean, std, f_best, xi=0.01):
 
 def bayesian_optimise(evaluator, n_plies, symmetric=False, n_init=8, n_iter=15,
                        xi=0.01, pool_size=2000, seed_points=None, rng=None,
-                       on_eval=None):
+                       on_eval=None, angle_step=None):
     """Sequential Bayesian Optimization: sample a DoE, evaluate the real
     (expensive) `evaluator` on each, fit a GP, then repeatedly pick the
     single most-informative next angle combination (max Expected
@@ -278,7 +296,13 @@ def bayesian_optimise(evaluator, n_plies, symmetric=False, n_init=8, n_iter=15,
         evaluated so far is still returned, with "stopped": True.
     seed_points: optional full-length angle sequences (e.g. a known-good
         layup) evaluated before the random DoE -- an informed rather than a
-        cold start.
+        cold start. Not snapped to angle_step -- the caller supplied these
+        exactly, so they are trusted as-is.
+    angle_step: optional grid spacing in degrees (e.g. 15) -- every
+        generated candidate (DoE and the per-round EI pool) is rounded to
+        the nearest multiple of this before it's ever handed to the real
+        evaluator, so results only ever land on angles the user actually
+        asked for. None/0 (default) searches continuously, unchanged.
     on_eval: optional callable(dict) invoked after every successful real
         evaluation with {"angles", "S", "source", "n_evaluations", ...} --
         the hook a caller uses to stream live progress (e.g. into a
@@ -317,7 +341,7 @@ def bayesian_optimise(evaluator, n_plies, symmetric=False, n_init=8, n_iter=15,
                 break
 
     if not stopped:
-        doe = latin_hypercube(max(0, int(n_init)), half, rng=rng)
+        doe = snap_to_grid(latin_hypercube(max(0, int(n_init)), half, rng=rng), angle_step)
         for row in doe:
             if not try_eval(row, expand_free(row, n_plies, symmetric), "init"):
                 break
@@ -336,6 +360,7 @@ def bayesian_optimise(evaluator, n_plies, symmetric=False, n_init=8, n_iter=15,
             n_jitter = max(1, pool_size // 10)
             jitter = (np.array(X[best_idx]) + rng.normal(0, 10.0, size=(n_jitter, half))) % _ANGLE_PERIOD
             pool = np.vstack([pool, jitter])
+            pool = snap_to_grid(pool, angle_step)
             mean, std = gp.predict(pool)
             ei = expected_improvement(mean, std, f_best=max(y), xi=xi)
             next_x = pool[int(np.argmax(ei))]
@@ -360,21 +385,24 @@ def bayesian_optimise(evaluator, n_plies, symmetric=False, n_init=8, n_iter=15,
 def genetic_search_then_verify(evaluator, n_plies, symmetric=False, n_init=20,
                                 pop_size=200, n_generations=60, elite_frac=0.1,
                                 mutation_std=15.0, top_k=3, rng=None,
-                                on_eval=None):
+                                on_eval=None, angle_step=None):
     """Fit a GP on an initial DoE sample, then run a genetic algorithm
     directly against the (now cheap) surrogate -- millions of surrogate
     evaluations cost nothing -- and confirm only the top_k winners with the
     real, expensive evaluator.
 
-    evaluator / on_eval: see bayesian_optimise -- same contract, including
-        SurrogateCancelled support (checked around both the initial DoE and
-        the final top_k verification, the only two points real solves run).
+    evaluator / on_eval / angle_step: see bayesian_optimise -- same contract,
+        including SurrogateCancelled support (checked around both the
+        initial DoE and the final top_k verification, the only two points
+        real solves run). angle_step is applied to the DoE, the initial
+        population and every mutated child, so the population never drifts
+        off the requested grid across generations.
     """
     n_plies = int(n_plies)
     half = _half(n_plies, symmetric)
     rng = rng or np.random.default_rng()
 
-    doe = latin_hypercube(int(n_init), half, rng=rng)
+    doe = snap_to_grid(latin_hypercube(int(n_init), half, rng=rng), angle_step)
     if len(doe) == 0:
         raise SurrogateError("n_init must be > 0.")
 
@@ -403,7 +431,7 @@ def genetic_search_then_verify(evaluator, n_plies, symmetric=False, n_init=20,
     verified = []
 
     if not stopped:
-        pop = rng.uniform(0.0, _ANGLE_PERIOD, size=(pop_size, half))
+        pop = snap_to_grid(rng.uniform(0.0, _ANGLE_PERIOD, size=(pop_size, half)), angle_step)
         n_elite = max(1, int(pop_size * elite_frac))
         for _ in range(int(n_generations)):
             mean, _std = gp.predict(pop)
@@ -416,6 +444,7 @@ def genetic_search_then_verify(evaluator, n_plies, symmetric=False, n_init=20,
                 mask = rng.random(half) < 0.5
                 child = np.where(mask, p1, p2)
                 child = (child + rng.normal(0, mutation_std, size=half)) % _ANGLE_PERIOD
+                child = snap_to_grid(child, angle_step)
                 children.append(child)
             pop = np.vstack([elite, np.array(children)]) if children else elite
 

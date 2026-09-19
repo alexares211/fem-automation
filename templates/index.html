@@ -312,19 +312,12 @@
 
     <section class="panel" id="optSection">
       <div class="sec-head"><span class="sec-num">06</span><h2 class="sec-title">Parameter Optimization</h2></div>
-      <p class="sec-note">Scores each stacking sequence with a real CalculiX solve, then searches instead of trying every combination.</p>
+      <p class="sec-note">Bayesian Optimization: scores each stacking sequence with a real CalculiX solve, fits a Gaussian Process surrogate on the results, and uses Expected Improvement to pick the next angle combination to try &mdash; instead of testing every combination.</p>
 
       <div class="row">
         <div>
           <label for="bo_num_plies">Plies (N)</label>
           <input type="number" id="bo_num_plies" value="8" step="1" min="1">
-        </div>
-        <div>
-          <label for="bo_strategy">Strategy</label>
-          <select id="bo_strategy">
-            <option value="bayesian" selected>Bayesian Optimization (sequential)</option>
-            <option value="genetic">Search-then-verify (genetic algorithm)</option>
-          </select>
         </div>
         <div>
           <label for="bo_reduce">Score</label>
@@ -333,8 +326,21 @@
             <option value="max">max Lager reaction force</option>
           </select>
         </div>
+        <div>
+          <label for="bo_angle_step">Angle step (&deg;)</label>
+          <input type="number" id="bo_angle_step" value="" step="1" min="0" placeholder="continuous">
+        </div>
       </div>
-      <div class="hint">Uses the material from section&nbsp;02, ply thickness and symmetry from section&nbsp;03. Each row is a real solve &mdash; expect seconds per row; stop any time and the best result so far is kept.</div>
+      <div class="row" style="margin-top:12px; align-items:flex-end;">
+        <div style="max-width:170px;">
+          <label for="bo_thickness">Ply thickness</label>
+          <input type="number" id="bo_thickness" step="any" min="0">
+        </div>
+        <label class="check" style="margin-bottom:9px;">
+          <input type="checkbox" id="bo_symmetric"> Symmetric (mirror)
+        </label>
+      </div>
+      <div class="hint">Uses the material from section&nbsp;02; ply thickness and symmetry are this section's own (not linked to section&nbsp;03). Each row is a real solve &mdash; expect seconds per row; stop any time and the best result so far is kept. Leave Angle step blank to search continuous angles; set it (e.g. 15) to restrict every candidate to that grid &mdash; 0&deg; and 180&deg; are the same physical ply, so a step that divides 180 evenly (15, 30, 45&hellip;) gives the cleanest grid.</div>
 
       <details class="advanced" id="bo_advanced">
         <summary>Advanced (auto-set from Plies)</summary>
@@ -342,11 +348,6 @@
           <div><label for="bo_n_init">Initial samples</label><input type="number" id="bo_n_init" value="8" step="1" min="1"></div>
           <div><label for="bo_n_iter">EI iterations</label><input type="number" id="bo_n_iter" value="15" step="1" min="0"></div>
           <div><label for="bo_xi">Exploration &xi;</label><input type="number" id="bo_xi" value="0.01" step="0.005" min="0"></div>
-        </div>
-        <div class="row" id="bo_genetic_fields" style="display:none;">
-          <div><label for="bo_pop_size">GA population</label><input type="number" id="bo_pop_size" value="200" step="10" min="10"></div>
-          <div><label for="bo_n_generations">GA generations</label><input type="number" id="bo_n_generations" value="60" step="5" min="1"></div>
-          <div><label for="bo_top_k">Verify top-k</label><input type="number" id="bo_top_k" value="3" step="1" min="1"></div>
         </div>
       </details>
 
@@ -1081,26 +1082,17 @@
 (function () {
   const btn = document.getElementById("boBtn");
   if (!btn) return;
-  const strategySel = document.getElementById("bo_strategy");
-  const bayesFields = document.getElementById("bo_bayes_fields");
-  const geneticFields = document.getElementById("bo_genetic_fields");
   const progress = document.getElementById("boProgress");
   const summaryBox = document.getElementById("boSummary");
   const tableBox = document.getElementById("boTableBox");
 
-  strategySel.addEventListener("change", () => {
-    const isBayes = strategySel.value === "bayesian";
-    bayesFields.style.display = isBayes ? "flex" : "none";
-    geneticFields.style.display = isBayes ? "none" : "flex";
-  });
-
-  // ---- auto-set the advanced (Initial samples / EI iterations / Exploration /
-  // GA population / GA generations / Verify top-k) fields from how many free
-  // angles the search actually has to explore, so nobody has to understand the
-  // algorithm just to run it. Stops overwriting a field once the user has
-  // edited it by hand -- the "just in case" escape hatch stays untouched. ----
+  // ---- auto-set the advanced (Initial samples / EI iterations / Exploration)
+  // fields from how many free angles the search actually has to explore, so
+  // nobody has to understand the algorithm just to run it. Stops overwriting
+  // a field once the user has edited it by hand -- the "just in case" escape
+  // hatch stays untouched. ----
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(v)));
-  const advancedIds = ["bo_n_init", "bo_n_iter", "bo_xi", "bo_pop_size", "bo_n_generations", "bo_top_k"];
+  const advancedIds = ["bo_n_init", "bo_n_iter", "bo_xi"];
   let advancedTouched = false;
   advancedIds.forEach(id => {
     document.getElementById(id).addEventListener("input", () => { advancedTouched = true; });
@@ -1108,7 +1100,7 @@
 
   function freePlyCount() {
     const n = Math.max(1, parseInt(document.getElementById("bo_num_plies").value, 10) || 1);
-    const symmetric = !!(document.getElementById("layupSym") || {}).checked;
+    const symmetric = !!(document.getElementById("bo_symmetric") || {}).checked;
     return symmetric ? Math.ceil(n / 2) : n;
   }
 
@@ -1118,12 +1110,9 @@
     document.getElementById("bo_n_init").value = clamp(2 * half + 2, 6, 20);
     document.getElementById("bo_n_iter").value = clamp(3 * half + 5, 10, 30);
     document.getElementById("bo_xi").value = "0.01";
-    document.getElementById("bo_pop_size").value = clamp(25 * half, 100, 300);
-    document.getElementById("bo_n_generations").value = 60;
-    document.getElementById("bo_top_k").value = 3;
   }
   document.getElementById("bo_num_plies").addEventListener("input", applyAutoDefaults);
-  (document.getElementById("layupSym") || { addEventListener() {} }).addEventListener("change", applyAutoDefaults);
+  document.getElementById("bo_symmetric").addEventListener("change", applyAutoDefaults);
   applyAutoDefaults();
 
   const seqStr = (arr) => "[ " + arr.map(a => fmtNum(a, 1) + "°").join(" / ") + " ]";
@@ -1131,37 +1120,46 @@
   let boJobId = null;
   let boPollTimer = null;
   let boHistoryLen = 0;
+  let boLastHistory = [];
+  let boScoreSort = null; // null (solve order) | "desc" (best first) | "asc" (worst first)
 
   function renderHistory(history) {
-    let best = -Infinity;
-    const rows = history.map((h, i) => {
-      best = Math.max(best, h.S);
-      const isBest = h.S === best;
-      return `<tr${isBest ? ' style="color:var(--ok);"' : ""}><td>${i + 1}</td><td>${escapeHtml(h.source || "")}</td>` +
+    boLastHistory = history;
+    const bestS = history.length ? Math.max(...history.map(h => h.S)) : null;
+    const numbered = history.map((h, i) => Object.assign({}, h, { _n: i + 1 }));
+    const rows = boScoreSort === "desc" ? [...numbered].sort((a, b) => b.S - a.S)
+      : boScoreSort === "asc" ? [...numbered].sort((a, b) => a.S - b.S)
+      : numbered;
+    const arrow = boScoreSort === "desc" ? " ▼" : boScoreSort === "asc" ? " ▲" : "";
+    const body = rows.map(h => {
+      const isBest = h.S === bestS;
+      return `<tr${isBest ? ' style="color:var(--ok);"' : ""}><td>${h._n}</td><td>${escapeHtml(h.source || "")}</td>` +
         `<td>${escapeHtml(seqStr(h.angles))}</td><td>${fmtNum(h.S, 4)}</td></tr>`;
     }).join("");
     tableBox.innerHTML = `<table class="resultsTable"><thead><tr>` +
-      `<th>#</th><th>Source</th><th>Sequence</th><th>Score</th>` +
-      `</tr></thead><tbody>${rows}</tbody></table>`;
+      `<th>#</th><th>Source</th><th>Sequence</th>` +
+      `<th id="boScoreHeader" style="cursor:pointer;user-select:none;" title="Click to sort best/worst">Score${arrow}</th>` +
+      `</tr></thead><tbody>${body}</tbody></table>`;
   }
 
-  function renderResult(result, method) {
-    if (!result) { summaryBox.innerHTML = `<div class="hint">No result -- stopped before any evaluation finished.</div>`; return; }
-    if (method === "bayesian") {
-      if (result.best_angles === null) { summaryBox.innerHTML = `<div class="hint">Stopped before any evaluation finished.</div>`; return; }
-      summaryBox.innerHTML = `<table class="resultsTable"><tbody>
-          <tr><td>Best sequence</td><td><strong>${escapeHtml(seqStr(result.best_angles))}</strong></td></tr>
-          <tr><td>Best score</td><td><strong>${fmtNum(result.best_S, 4)}</strong></td></tr>
-          <tr><td>Real evaluations</td><td>${result.n_evaluations}</td></tr>
-        </tbody></table>`;
-    } else {
-      const best = result.best;
-      summaryBox.innerHTML = best ? `<table class="resultsTable"><tbody>
-          <tr><td>Best verified sequence</td><td><strong>${escapeHtml(seqStr(best.angles))}</strong></td></tr>
-          <tr><td>Best score</td><td><strong>${fmtNum(best.S, 4)}</strong></td></tr>
-          <tr><td>Training points / verified</td><td>${result.surrogate_training_points} / ${result.verified.length}</td></tr>
-        </tbody></table>` : `<div class="hint">Stopped before any candidate was verified.</div>`;
+  // event delegation -- the header is recreated by innerHTML on every render,
+  // so this listens on the (stable) container instead of the <th> itself.
+  tableBox.addEventListener("click", (e) => {
+    if (!e.target.closest("#boScoreHeader")) return;
+    boScoreSort = boScoreSort === "desc" ? "asc" : "desc";
+    renderHistory(boLastHistory);
+  });
+
+  function renderResult(result) {
+    if (!result || result.best_angles === null) {
+      summaryBox.innerHTML = `<div class="hint">No result -- stopped before any evaluation finished.</div>`;
+      return;
     }
+    summaryBox.innerHTML = `<table class="resultsTable"><tbody>
+        <tr><td>Best sequence</td><td><strong>${escapeHtml(seqStr(result.best_angles))}</strong></td></tr>
+        <tr><td>Best score</td><td><strong>${fmtNum(result.best_S, 4)}</strong></td></tr>
+        <tr><td>Real evaluations</td><td>${result.n_evaluations}</td></tr>
+      </tbody></table>`;
   }
 
   async function pollBo() {
@@ -1194,13 +1192,14 @@
       } else {
         const stoppedNote = data.result && data.result.stopped ? " (stopped early by user)" : "";
         progress.textContent = `Done -- ${data.history.length} real solve(s) completed${stoppedNote}.`;
-        renderResult(data.result, strategySel.value);
+        renderResult(data.result);
       }
     }
   }
 
   btn.addEventListener("click", async () => {
     boHistoryLen = 0;
+    boLastHistory = []; boScoreSort = null;
     tableBox.innerHTML = ""; summaryBox.innerHTML = ""; progress.textContent = ""; liveLog.textContent = "";
 
     const m = window.femCollectModel ? window.femCollectModel() : {};
@@ -1212,24 +1211,24 @@
       progress.innerHTML = `<span class="row-error">Drop at least one Festlager on the model first.</span>`;
       return;
     }
-    if (!String(m.thickness).trim() || !(Number(m.thickness) > 0)) {
-      progress.innerHTML = `<span class="row-error">Enter the ply thickness in the Layup section first.</span>`;
+    const thickness = document.getElementById("bo_thickness").value;
+    if (!String(thickness).trim() || !(Number(thickness) > 0)) {
+      progress.innerHTML = `<span class="row-error">Enter the ply thickness above first.</span>`;
       return;
     }
 
-    const method = strategySel.value;
     const payload = Object.assign({}, m, {
       output_folder: document.getElementById("run_output_folder").value,
       ccx_exe: document.getElementById("run_ccx_exe").value,
       num_plies: document.getElementById("bo_num_plies").value,
       reduce: document.getElementById("bo_reduce").value,
-      method: method,
+      angle_step: document.getElementById("bo_angle_step").value,
+      thickness: thickness,
+      symmetric: document.getElementById("bo_symmetric").checked,
+      method: "bayesian",
       n_init: document.getElementById("bo_n_init").value,
       n_iter: document.getElementById("bo_n_iter").value,
       xi: document.getElementById("bo_xi").value,
-      pop_size: document.getElementById("bo_pop_size").value,
-      n_generations: document.getElementById("bo_n_generations").value,
-      top_k: document.getElementById("bo_top_k").value,
     });
 
     btn.disabled = true;
