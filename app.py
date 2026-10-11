@@ -7,7 +7,8 @@ from flask import Flask, render_template, request, jsonify
 from ccx_runner import run_ccx_blocking
 from dat_parser import read_reaction_force, DatParseError
 from step_mesher import structured_grid, StepMeshError
-from inp_writer import material_block, section_block, full_inp, LAGER_ALL, InpWriteError
+from inp_writer import material_block, section_block, full_inp, LAGER_ALL, ELSET_NAME, InpWriteError
+from puck import PuckStrength, PuckInputError, evaluate_laminate
 from surrogate import (
     make_ccx_evaluator, bayesian_optimise, genetic_search_then_verify, SurrogateError,
 )
@@ -126,6 +127,27 @@ def _parse_angles(text):
     if not vals:
         raise InpWriteError("Enter at least one ply angle.")
     return vals
+
+
+def _puck_strength_from_dict(d):
+    """{"S11t":.., "S11c":.., "S22t":.., "S22c":.., "S21s":.., "p21_plus":..,
+    "p21_minus": (optional)} -> PuckStrength. Returns None if d is empty/not
+    given, so a Puck check is simply skipped when no strength data is
+    provided (the simulate/optimization pipeline works exactly as before)."""
+    if not d:
+        return None
+    try:
+        return PuckStrength(
+            S11t=float(d["S11t"]), S11c=float(d["S11c"]),
+            S22t=float(d["S22t"]), S22c=float(d["S22c"]),
+            S21s=float(d["S21s"]), p21_plus=float(d["p21_plus"]),
+            p21_minus=float(d["p21_minus"]) if d.get("p21_minus") not in (None, "") else None,
+        )
+    except (KeyError, TypeError, ValueError) as e:
+        raise PuckInputError(
+            "Puck strength needs numeric S11t, S11c, S22t, S22c, S21s, p21_plus "
+            "(p21_minus optional, defaults to p21_plus)."
+        ) from e
 
 
 def run_bo(job_id, model, output_folder, ccx_exe, n_plies, symmetric, method, params):
@@ -308,9 +330,13 @@ def stop(job_id):
 
 # ---------- single simulate ----------
 
-def run_simulate(job_id, model, angles, output_folder, ccx_exe):
+def run_simulate(job_id, model, angles, output_folder, ccx_exe, puck_strength=None):
     """Assemble one full .inp with the given layup, solve it, write the result
-    files into output_folder, and read the reaction force at each Lager."""
+    files into output_folder, read the reaction force at each Lager, and --
+    if puck_strength was given -- also run the Puck failure check on every
+    ply's stress from the same solve (one ccx run covers both; the .inp
+    already requests per-ply stress output unconditionally, see
+    inp_writer.full_inp)."""
     with JOBS_LOCK:
         job = JOBS[job_id]
     lager_node = {int(l["node"]): int(l["index"]) for l in model["lagers"]}
@@ -345,6 +371,13 @@ def run_simulate(job_id, model, angles, output_folder, ccx_exe):
             }
         except DatParseError as e:
             job["error"] = "Could not read reaction force: " + str(e)
+            return
+
+        if puck_strength is not None:
+            try:
+                job["puck"] = evaluate_laminate(dat_path, ELSET_NAME, puck_strength)
+            except DatParseError as e:
+                job["error"] = "Could not run Puck check: " + str(e)
     except Exception as e:
         job["error"] = str(e)
     finally:
@@ -369,6 +402,7 @@ def simulate_start():
 
     try:
         angles = _parse_angles(data.get("layup"))
+        puck_strength = _puck_strength_from_dict(data.get("puck_strength"))
         with GMSH_LOCK:
             grid = structured_grid(source_path, spacing=data.get("spacing", "1"))
         full_inp(
@@ -376,7 +410,7 @@ def simulate_start():
             data.get("material_name"), data.get("constants"), angles, data.get("thickness"),
             lagers, bool(data.get("symmetric")), "auto", loads,
         )
-    except (StepMeshError, InpWriteError) as e:
+    except (StepMeshError, InpWriteError, PuckInputError) as e:
         return jsonify({"ok": False, "error": str(e)})
 
     model = {
@@ -389,12 +423,14 @@ def simulate_start():
     job = {
         "done": False, "cancel_event": threading.Event(), "log_tail": "",
         "error": None, "converged": False, "rf_by_lager": {}, "inp_path": None,
-        "output_folder": output_folder,
+        "output_folder": output_folder, "puck": None,
     }
     with JOBS_LOCK:
         JOBS[job_id] = job
     threading.Thread(
-        target=run_simulate, args=(job_id, model, angles, output_folder, ccx_exe), daemon=True
+        target=run_simulate,
+        args=(job_id, model, angles, output_folder, ccx_exe, puck_strength),
+        daemon=True,
     ).start()
     return jsonify({"ok": True, "job_id": job_id})
 
@@ -413,6 +449,7 @@ def simulate_status(job_id):
         "log_tail": job["log_tail"],
         "rf_by_lager": job.get("rf_by_lager", {}),
         "output_folder": job.get("output_folder", ""),
+        "puck": job.get("puck"),
     })
 
 

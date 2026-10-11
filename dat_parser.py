@@ -96,3 +96,95 @@ def read_reaction_force(dat_path, nset_name):
         "sum_fz": sum_fz,
         "magnitude": magnitude,
     }
+
+
+# ---------- per-ply stress (for puck.ply_failure) ----------
+#
+# *El print, Elset=..., with plain "S" on a *Shell section, Composite part
+# writes blocks shaped like (CalculiX .dat convention for composite shells):
+#
+#     stresses (elem, integ.pnt.,layer, S11, S22, S33, S12, S13, S23) for set
+#     EALL and time  1.0000000e+00
+#
+#        1    1    1-1.234567E+02-2.345678E+01 0.000000E+00-3.456789E+00 ...
+#        1    2    1 ...
+#        1    1    2 ...
+#
+# i.e. three leading integer columns (element, integration point, ply
+# layer -- layer matches the 1-based AutoPly<N> order from
+# inp_writer.section_block) followed by six stress components, already in
+# each ply's LOCAL material frame because of the per-ply *Orientation
+# (S11 = fiber direction, S22 = transverse, S12 = in-plane shear -- exactly
+# what puck.ply_failure wants). Not yet verified against a real ccx-produced
+# .dat (no ccx binary on this dev machine -- see CLAUDE.md-equivalent notes
+# in memory): the header wording/column order is CalculiX's documented
+# convention, but if a real .dat's "stresses (elem, ..." line or column
+# count doesn't match, fix _STRESS_HEADER_RE / _STRESS_PREFIX_RE below
+# against that real file before trusting any Puck result built on this.
+
+_STRESS_HEADER_RE = re.compile(
+    r'stresses\s*\(elem,\s*integ\.?\s*pnt\.?\s*,\s*layer.*?\)\s*for\s*set\s*(\S+)\s*and\s*time\s*([0-9.eE+\-]+)',
+    re.IGNORECASE | re.DOTALL,
+)
+_STRESS_PREFIX_RE = re.compile(r'(\d+)\s+(\d+)\s+(\d+)\s*$')
+_STRESS_COMPONENTS = ("S11", "S22", "S33", "S12", "S13", "S23")
+
+
+def _parse_stress_rows(body_text):
+    rows = []
+    for line in body_text.splitlines():
+        line = line.strip()
+        if not line:
+            if rows:
+                break
+            continue
+        floats = _FLOAT_RE.findall(line)
+        if len(floats) < len(_STRESS_COMPONENTS):
+            continue
+        floats = floats[: len(_STRESS_COMPONENTS)]
+        first_pos = line.find(floats[0])
+        prefix = line[:first_pos]
+        m = _STRESS_PREFIX_RE.search(prefix)
+        if not m:
+            continue
+        elem, ip, layer = (int(v) for v in m.groups())
+        values = {k: float(v) for k, v in zip(_STRESS_COMPONENTS, floats)}
+        rows.append({"elem": elem, "ip": ip, "layer": layer, **values})
+    return rows
+
+
+def read_ply_stresses(dat_path, elset_name):
+    """Return every (element, integration point, ply layer) stress row from
+    the LAST (highest-time) 'stresses (elem, integ.pnt.,layer, ...)' block
+    for elset_name -- same "take the final converged increment" convention
+    as read_reaction_force, for the same reason (a nonlinear step prints one
+    block per increment).
+
+    Returns a list of dicts: {elem, ip, layer, S11, S22, S33, S12, S13, S23}.
+    """
+    with open(dat_path, "r", errors="ignore") as f:
+        text = f.read()
+
+    headers = list(_STRESS_HEADER_RE.finditer(text))
+    matches = []
+    for idx, m in enumerate(headers):
+        set_name, time_str = m.group(1), m.group(2)
+        if set_name.strip().lower() != elset_name.strip().lower():
+            continue
+        body_end = headers[idx + 1].start() if idx + 1 < len(headers) else len(text)
+        body_text = text[m.end():body_end]
+        rows = _parse_stress_rows(body_text)
+        if rows:
+            matches.append((float(time_str), rows))
+
+    if not matches:
+        raise DatParseError(
+            "No 'stresses (elem, integ.pnt.,layer, ...) for set " + elset_name
+            + "' block found in " + dat_path
+            + " -- check that *El print, Elset=" + elset_name + " / S is in the .inp,"
+            + " and if it is, the .dat header text may not match what this parser expects"
+            + " (see the comment above read_ply_stresses)."
+        )
+
+    matches.sort(key=lambda t: t[0])
+    return matches[-1][1]

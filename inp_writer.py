@@ -368,6 +368,15 @@ def full_inp(nodes, elements, element_type, material_name, constants,
         "RF, U",
         "*El file",
         "S, E",
+        # Per-ply stress in the .dat file, in each ply's LOCAL material frame
+        # (S11 = fiber direction, S22 = transverse, S12 = in-plane shear --
+        # exactly what puck.ply_failure needs), one row per element /
+        # integration point / layer. Composite-shell stress through *El file
+        # (.frd) has a confirmed CalculiX 2.22 bug for reaction force on this
+        # project (see dat_parser module docstring); .dat via *El print is
+        # the established safe path here, so stress goes the same way.
+        f"*El print, Elset={ELSET_NAME}",
+        "S",
         "*End step",
     ]
     return "\n".join(parts) + "\n"
