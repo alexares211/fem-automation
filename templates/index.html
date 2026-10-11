@@ -304,9 +304,29 @@
     <section class="panel" id="simulateSection">
       <div class="sec-head"><span class="sec-num">05</span><h2 class="sec-title">Simulate</h2></div>
       <p class="sec-note">One run with the layup above.</p>
-      <button type="button" class="btn-run" id="simBtn" style="margin-top:0;">Run</button>
+
+      <details class="advanced" id="puck_advanced">
+        <summary>Puck failure check (optional &mdash; leave blank to skip)</summary>
+        <div class="row">
+          <div><label for="puck_S11t">S11t (fiber tension)</label><input type="number" id="puck_S11t" step="any" min="0"></div>
+          <div><label for="puck_S11c">S11c (fiber compression)</label><input type="number" id="puck_S11c" step="any" min="0"></div>
+          <div><label for="puck_S22t">S22t (transverse tension)</label><input type="number" id="puck_S22t" step="any" min="0"></div>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <div><label for="puck_S22c">S22c (transverse compression)</label><input type="number" id="puck_S22c" step="any" min="0"></div>
+          <div><label for="puck_S21s">S21s (in-plane shear)</label><input type="number" id="puck_S21s" step="any" min="0"></div>
+          <div><label for="puck_p21p">p21&#43; (Mode A slope)</label><input type="number" id="puck_p21p" step="any" min="0" value="0.30"></div>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <div><label for="puck_p21m">p21&minus; (Mode B slope, optional)</label><input type="number" id="puck_p21m" step="any" min="0" placeholder="= p21+"></div>
+        </div>
+        <div class="hint">All five strengths in the same stress unit as your material's E/G (e.g. MPa). Fill in all five strengths and p21+ to run the check; leave any strength blank to skip it. Reads S11/S22/S12 per ply from the same solve&nbsp;&mdash; no extra CalculiX run.</div>
+      </details>
+
+      <button type="button" class="btn-run" id="simBtn" style="margin-top:12px;">Run</button>
       <div id="simMsg" class="progress-line"></div>
       <div id="simResults" class="table-wrap"></div>
+      <div id="puckResults" class="table-wrap"></div>
       <pre id="simLog" style="display:none;"></pre>
     </section>
 
@@ -1002,10 +1022,17 @@
     m.layup = layup;
     m.output_folder = out;
     m.ccx_exe = document.getElementById("run_ccx_exe").value;
+    const puckStrength = collectPuckStrength();
+    if (puckStrength === "incomplete") {
+      msg.textContent = "Puck check: fill in all five strengths (S11t, S11c, S22t, S22c, S21s) and p21+, or leave them all blank to skip it.";
+      return;
+    }
+    if (puckStrength) m.puck_strength = puckStrength;
 
     btn.disabled = true;
     logBox.style.display = "none";
     document.getElementById("simResults").innerHTML = "";
+    document.getElementById("puckResults").innerHTML = "";
     msg.textContent = "Starting CalculiX…";
     try {
       const res = await fetch("/simulate_start", {
@@ -1034,6 +1061,7 @@
       msg.textContent = (data.converged ? "Converged" : "Finished (check log)") +
         ` — result files in ${data.output_folder}`;
       renderSimResults(data.rf_by_lager);
+      renderPuckResults(data.puck);
     } catch (err) {
       clearInterval(timer);
       btn.disabled = false;
@@ -1055,6 +1083,56 @@
       `<table class="resultsTable"><thead><tr>` +
       `<th>Support</th><th>Force X (N)</th><th>Force Y (N)</th><th>Force Z (N)</th><th>Total force (N)</th>` +
       `</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  // Reads the Puck strength fields. Returns null if every field is blank
+  // (check not requested), "incomplete" if only some are filled (caller
+  // shows a validation message), or the strength object once all five
+  // strengths + p21+ are given (p21- stays optional, server defaults it to
+  // p21+ when omitted -- see puck.PuckStrength).
+  function collectPuckStrength() {
+    const ids = ["puck_S11t", "puck_S11c", "puck_S22t", "puck_S22c", "puck_S21s", "puck_p21p"];
+    const vals = ids.map(id => (document.getElementById(id) || {}).value || "");
+    const filled = vals.filter(v => v.trim() !== "");
+    if (filled.length === 0) return null;
+    if (filled.length < ids.length) return "incomplete";
+    const p21m = (document.getElementById("puck_p21m") || {}).value || "";
+    const out = {
+      S11t: Number(vals[0]), S11c: Number(vals[1]), S22t: Number(vals[2]),
+      S22c: Number(vals[3]), S21s: Number(vals[4]), p21_plus: Number(vals[5]),
+    };
+    if (p21m.trim() !== "") out.p21_minus = Number(p21m);
+    return out;
+  }
+
+  function renderPuckResults(puck) {
+    const box = document.getElementById("puckResults");
+    if (!puck) { box.innerHTML = ""; return; }
+
+    const w = puck.worst;
+    const verdictClass = puck.failed ? "row-error" : "";
+    const verdictText = puck.failed
+      ? `CRACKS &mdash; ply ${w.layer} (elem ${w.elem}, ip ${w.ip}) governs: f = ${fmtNum(w.f_max, 3)} via ${w.governing}` +
+        (w.governing === "IFF" ? ` (Mode ${w.iff_mode})` : "")
+      : `Holds &mdash; worst point is ply ${w.layer} (elem ${w.elem}, ip ${w.ip}), f = ${fmtNum(w.f_max, 3)}, ` +
+        `reserve factor ${fmtNum(w.reserve_factor, 2)}&times;`;
+
+    const layers = Object.keys(puck.by_layer).map(Number).sort((a, b) => a - b);
+    const rows = layers.map(layer => {
+      const r = puck.by_layer[layer];
+      const rfText = isFinite(r.reserve_factor) ? fmtNum(r.reserve_factor, 2) + "&times;" : "&infin;";
+      return `<tr${r.failed ? ' class="row-error"' : ""}>` +
+        `<td>${layer}</td><td>${fmtNum(r.f_ff, 3)}</td><td>${fmtNum(r.f_iff, 3)} (${escapeHtml(r.iff_mode)})</td>` +
+        `<td>${fmtNum(r.f_max, 3)}</td><td>${escapeHtml(r.governing)}</td><td>${rfText}</td>` +
+        `</tr>`;
+    }).join("");
+
+    box.innerHTML =
+      `<h3 class="${verdictClass}" style="margin:12px 0 8px;">Puck check: ${verdictText}</h3>` +
+      `<table class="resultsTable"><thead><tr>` +
+      `<th>Ply (layer)</th><th>f_FF</th><th>f_IFF (mode)</th><th>f_max</th><th>Governs</th><th>Reserve factor</th>` +
+      `</tr></thead><tbody>${rows}</tbody></table>` +
+      `<div class="hint">One row per ply layer: the worst (highest f) integration point found on that layer across the whole part. f &ge; 1 means that ply has failed.</div>`;
   }
 })();
 </script>
