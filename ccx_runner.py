@@ -44,10 +44,10 @@ def start_ccx(inp_path, ccx_exe):
 def run_ccx_blocking(inp_path, ccx_exe, cancel_event=None, poll_interval=0.3):
     """Run ccx and wait for it to finish, checking cancel_event periodically.
 
-    Used by the angle sweep, which runs many solves back to back in a
-    background thread -- cancel_event lets the user's Stop button kill the
-    currently running solve (and skip the rest of the sweep) without having
-    to wait for it to finish on its own.
+    Used wherever many solves run back to back in a background thread (a
+    single simulate, or a parameter-optimization search) -- cancel_event
+    lets the user's Stop button kill the currently running solve (and skip
+    the rest of the job) without having to wait for it to finish on its own.
     """
     state = start_ccx(inp_path, ccx_exe)
     proc = state["proc"]
