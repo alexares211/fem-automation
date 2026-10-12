@@ -17,13 +17,15 @@ Parsing is a flat, generic Abaqus/CalculiX keyword-card split (keyword line
 starts with a single '*', comment lines start with '**', a card's body is
 every line up to the next keyword line) -- this grammar is the documented
 CalculiX convention (ccx 2.22 user's manual, "7 INPUT DECK FORMAT"), not a
-PrePoMax-specific guess. What IS still an assumption, not yet verified
-against a real PrePoMax export, is: (a) that a material-less PrePoMax run
-still writes the .inp up to the point of failure, including an incomplete
-*Shell/*Solid section card referencing an ELSET, and (b) PrePoMax's exact
-set-naming conventions. Both should be checked against a real file before
-trusting this for anything safety-relevant.
+PrePoMax-specific guess. Confirmed 2026-10-13 against real PrePoMax exports:
+(a) a material-less run does write the .inp up to the point of failure,
+including the incomplete *Shell section card (elset name recovered from it
+works as the default), and (b) PrePoMax's default shell mesh used plain S8
+(full integration), which CalculiX's Composite shell section rejects --
+see upgrade_s8_to_s8r() below, which fixes that without remeshing.
 """
+
+import re
 
 from inp_writer import InpWriteError, material_block, section_block, auto_nlgeom
 
@@ -190,6 +192,32 @@ def elset_element_types(cards, elset_name):
     return sorted({id_to_type[i] for i in members if i in id_to_type})
 
 
+def upgrade_s8_to_s8r(cards, elset_name):
+    """Rewrite Type=S8 to Type=S8R on every *Element card that contributes a
+    member to elset_name. S8 and S8R are the SAME element (ccx 2.22 manual
+    section 6.2.14, "Eight-node shell element (S8 and S8R)": identical node
+    numbering/connectivity, the only difference is the solver's internal
+    integration scheme -- full for S8, reduced for S8R) -- CalculiX's
+    Composite shell section just requires the reduced-integration label, so
+    this relabelling is lossless and needs no remesh. Returns a new cards
+    list; the input is left untouched.
+    """
+    members = _resolve_elset_members(cards, elset_name) or set()
+    out = []
+    for c in cards:
+        if c["keyword"] == "ELEMENT":
+            params = _keyword_params(c["header"])
+            etype = (params.get("TYPE") or "").strip().upper()
+            card_ids = {int(line.strip().rstrip(",").split(",", 1)[0].strip())
+                        for line in c["body"]
+                        if line.strip().rstrip(",").split(",", 1)[0].strip().isdigit()}
+            if etype == "S8" and (card_ids & members):
+                c = dict(c)
+                c["header"] = re.sub(r"(?i)type\s*=\s*S8\b", "Type=S8R", c["header"])
+        out.append(c)
+    return out
+
+
 def split_preamble_and_step(cards):
     step_idx = next((i for i, c in enumerate(cards) if c["keyword"] == "STEP"), None)
     if step_idx is None:
@@ -242,7 +270,12 @@ def inspect_inp(text):
     preamble, step = split_preamble_and_step(cards)
     _, elset_from_section = strip_material_and_section(preamble)
     elsets = find_set_names(preamble, "ELSET")
-    elset_types = {name: elset_element_types(preamble, name) for name in elsets}
+    # Report types post-upgrade (S8 -> S8R) so the UI doesn't flag something
+    # splice_layup() is about to fix anyway -- see upgrade_s8_to_s8r().
+    elset_types = {
+        name: elset_element_types(upgrade_s8_to_s8r(preamble, name), name)
+        for name in elsets
+    }
     return {
         "nsets": find_set_names(preamble, "NSET"),
         "elsets": elsets,
@@ -277,6 +310,11 @@ def splice_layup(base_text, elset_name, material_name, constants,
             "Could not tell which element set the composite layup applies to "
             "-- pick one of the imported .inp's element sets."
         )
+
+    # S8 -> S8R is a lossless relabel (same element, same connectivity, see
+    # upgrade_s8_to_s8r's docstring), so it's fixed here rather than
+    # rejected -- do this before the compatibility check below.
+    preamble = upgrade_s8_to_s8r(preamble, target_elset)
 
     found_types = elset_element_types(preamble, target_elset)
     bad_types = sorted(set(found_types) - _COMPOSITE_SHELL_TYPES)
