@@ -77,30 +77,10 @@
     .btn-row button { flex: 1 1 0; min-width: 140px; max-width: 210px; margin-top: 12px; }
     .btn-run { min-width: 260px; }
 
-    #stepDrop, #inpDrop { border: 1.5px dashed var(--border-2); border-radius: 10px; padding: 24px;
+    #inpDrop { border: 1.5px dashed var(--border-2); border-radius: 10px; padding: 24px;
       text-align: center; color: var(--text); font-size: 15px; cursor: pointer;
       background: var(--panel-2); transition: border-color .12s, color .12s; }
-    #stepDrop:hover, #inpDrop:hover { border-color: var(--accent); color: var(--text); }
-
-    #stepViewport { flex: 1; height: 460px; border: 1px solid var(--border);
-      border-radius: 10px; background: var(--inset); position: relative; overflow: hidden; }
-    #viewControls button { margin: 0; padding: 0; width: 30px; height: 30px; font-size: 15px;
-      letter-spacing: 0; background: rgba(18,27,40,0.85); color: var(--text);
-      border: 1px solid var(--border-2); }
-    #viewControls button:hover { background: rgba(18,194,233,0.15); border-color: var(--accent); }
-
-    #lagerPalette { width: 108px; border: 1px solid var(--border); border-radius: 10px;
-      display: flex; flex-direction: column; overflow: hidden; background: var(--panel-2); }
-    .pal-group-label { padding: 7px 4px 5px; font-size: 10.5px; font-weight: 700;
-      letter-spacing: 0.12em; text-align: center; color: var(--text-dim); }
-    .pal-body { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
-    .pal-tile { border-radius: 7px; padding: 9px 4px; text-align: center; font-size: 10.5px;
-      font-weight: 600; letter-spacing: 0.03em; cursor: grab; color: #fff; user-select: none;
-      border: 1px solid transparent; }
-    .pal-tile .ico { font-size: 19px; line-height: 1; display: block; margin-bottom: 2px; }
-    .pal-tile.t-festlager    { background: #c1490c; border-color: #e2681f; }
-    .pal-tile.t-force        { background: #1f7a2e; border-color: #2fa044; }
-    .pal-tile.t-displacement { background: #7a2fc1; border-color: #9a4fe0; }
+    #inpDrop:hover { border-color: var(--accent); color: var(--text); }
 
     .hint { color: var(--text-mut); font-size: 13.5px; margin-top: 6px; }
     details.advanced { margin-top: 14px; }
@@ -192,58 +172,10 @@
 
     <section class="panel" id="stepSection">
       <div class="sec-head"><span class="sec-num">01</span><h2 class="sec-title">Model</h2></div>
+      <p class="sec-note">Build geometry, mesh, supports and loads in PrePoMax. Run it once with no material assigned (it's expected to error on that), then drop the resulting .inp here.</p>
 
-      <div id="stepDrop">
-        Drop a <strong>.step</strong> file &mdash; or click
-        <input type="file" id="stepFile" accept=".step,.stp,.STEP,.STP" style="display:none;">
-      </div>
-
-      <div class="row" style="margin-top:12px; align-items:flex-end;">
-        <div style="max-width:150px;">
-          <label for="stepSpacing">Grid (mm)</label>
-          <input type="number" id="stepSpacing" step="any" min="0" value="5">
-        </div>
-        <div style="flex:0 0 auto;">
-          <button type="button" id="stepBtn" style="margin-top:0;">Process</button>
-        </div>
-      </div>
-      <div id="stepMsg" class="progress-line"></div>
-
-      <div style="display:flex; gap:10px; margin-top:12px; align-items:stretch;">
-        <div id="stepViewport">
-          <div id="stepViewHint" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#5f7186; font-size:11px; letter-spacing:0.14em; text-transform:uppercase;">no mesh</div>
-          <div id="viewControls" style="position:absolute; top:8px; right:8px; display:flex; flex-direction:column; gap:5px; z-index:5;">
-            <button type="button" id="viewFit" title="Fit view">&#9974;</button>
-            <button type="button" id="viewIn" title="Zoom in">+</button>
-            <button type="button" id="viewOut" title="Zoom out">&#8722;</button>
-          </div>
-        </div>
-        <div id="lagerPalette">
-          <div class="pal-group-label" style="color:#c98a5f;">SUPPORTS</div>
-          <div class="pal-body" style="flex:1;">
-            <div class="pal-tile t-festlager" data-kind="lager" data-type="festlager" draggable="true">
-              <span class="ico">&#9155;</span>Festlager
-            </div>
-          </div>
-          <div class="pal-group-label" style="color:#6fbf7f;">LOADS</div>
-          <div class="pal-body">
-            <div class="pal-tile t-force" data-kind="load" data-type="force" draggable="true">
-              <span class="ico">&#8595;</span>Force
-            </div>
-            <div class="pal-tile t-displacement" data-kind="load" data-type="displacement" draggable="true">
-              <span class="ico">&#8693;</span>Displ.
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="hint">Drag rotate &middot; scroll zoom &middot; shift-drag pan &middot; drop a tile on a node</div>
-
-      <div id="lagerList" style="margin-top:12px;"></div>
-      <div id="loadList" style="margin-top:10px;"></div>
-
-      <div class="hint" style="margin-top:18px;">&mdash; or, if geometry, mesh, supports and loads were already built in PrePoMax &mdash;</div>
-      <div id="inpDrop" style="margin-top:8px;">
-        Drop the PrePoMax <strong>.inp</strong> (run once with no material assigned &mdash; it's expected to error on that) &mdash; or click
+      <div id="inpDrop">
+        Drop the PrePoMax <strong>.inp</strong> &mdash; or click
         <input type="file" id="inpFile" accept=".inp" style="display:none;">
       </div>
       <div id="inpMsg" class="progress-line"></div>
@@ -475,441 +407,21 @@
 
 </script>
 
-<!-- ===== STEP -> structured grid + Festlager placement ===== -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- ===== Expose the on-page model (Material/Layup + imported PrePoMax .inp) ===== -->
 <script>
 (function () {
-  const dz = document.getElementById("stepDrop");
-  const fileInput = document.getElementById("stepFile");
-  const spacingInput = document.getElementById("stepSpacing");
-  const btn = document.getElementById("stepBtn");
-  const msg = document.getElementById("stepMsg");
-  const viewport = document.getElementById("stepViewport");
-  const viewHint = document.getElementById("stepViewHint");
-  const lagerListBox = document.getElementById("lagerList");
-  const loadListBox = document.getElementById("loadList");
   const fullInpBtn = document.getElementById("fullInpBtn");
   const fullInpMsg = document.getElementById("fullInpMsg");
   const fullInpOut = document.getElementById("fullInpOut");
 
-  let pickedFile = null;
-  let meshSource = "";               // server path of the meshed STEP
-  let nodeIds = [], nodeXYZ = null;   // parallel: id list + flat Float32 coords
-  let span = 1;
-  let normalDir = [0, 1, 0];         // out-of-plane axis (thin bbox axis)
-  let lagers = [];                  // [{type, node, xyz, index}]
-  let loads = [];                   // [{type:'force'|'displacement', node, xyz, dir:[x,y,z], mag, index}]
-
-  // ---- STEP file drop zone ----
-  dz.addEventListener("click", () => fileInput.click());
-  fileInput.addEventListener("change", () => {
-    if (fileInput.files.length) { pickedFile = fileInput.files[0]; showPicked(); }
-  });
-  ["dragover", "dragenter"].forEach(ev => dz.addEventListener(ev, e => {
-    e.preventDefault(); dz.style.background = "#eef3ef"; dz.style.borderColor = "#8fae9b";
-  }));
-  ["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, e => {
-    e.preventDefault(); dz.style.background = "#faf9f7"; dz.style.borderColor = "#c9c4bd";
-  }));
-  dz.addEventListener("drop", e => {
-    if (e.dataTransfer.files.length) {
-      pickedFile = e.dataTransfer.files[0];
-      try { const dt = new DataTransfer(); dt.items.add(pickedFile); fileInput.files = dt.files; } catch (_) {}
-      showPicked();
-    }
-  });
-  function showPicked() {
-    dz.innerHTML = `Selected: <strong>${pickedFile.name}</strong> &nbsp;(click to change)`;
-    dz.appendChild(fileInput);
-  }
-
-  // ---- process STEP -> structured grid ----
-  btn.addEventListener("click", async () => {
-    if (!pickedFile) { msg.textContent = "Pick a STEP file first."; return; }
-    btn.disabled = true;
-    msg.textContent = "Meshing…";
-    try {
-      const fd = new FormData();
-      fd.append("step_file", pickedFile);
-      fd.append("spacing", spacingInput.value);
-      const res = await fetch("/process_step", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!data.ok) { msg.innerHTML = `<span class="row-error">${data.error}</span>`; return; }
-      meshSource = data.source_path;
-      msg.textContent =
-        `S8R grid: ${data.num_elements} elements, ${data.num_nodes} nodes ` +
-        `(spacing ${Number(data.spacing).toFixed(3)} mm)`;
-      showMesh(data);
-    } catch (err) {
-      msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-  // ---- minimal three.js orbit viewport ----
-  let renderer, scene, camera, meshGroup, markerGroup, axesGroup, meshObj, raf = null;
-  const target = new THREE.Vector3();
-  const HOME = { theta: Math.PI * 0.25, phi: Math.PI * 0.35 };
-  const sph = { r: 10, theta: HOME.theta, phi: HOME.phi };
-  const home = { target: new THREE.Vector3(), r: 10 };   // "fit" view, set per mesh
-  const raycaster = new THREE.Raycaster();
-
-  function fitView() {
-    if (!renderer) return;
-    target.copy(home.target);
-    sph.r = home.r;
-    sph.theta = HOME.theta;
-    sph.phi = HOME.phi;
-  }
-  function zoomBy(f) { if (renderer) sph.r = Math.max(1e-4, sph.r * f); }
-  document.getElementById("viewFit").addEventListener("click", fitView);
-  document.getElementById("viewIn").addEventListener("click", () => zoomBy(0.8));
-  document.getElementById("viewOut").addEventListener("click", () => zoomBy(1.25));
-
-  function initViewer() {
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(window.devicePixelRatio || 1);
-    renderer.setSize(viewport.clientWidth, viewport.clientHeight);
-    renderer.setClearColor(0x05090e, 1);
-    viewport.appendChild(renderer.domElement);
-    scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(45, viewport.clientWidth / viewport.clientHeight, 0.01, 1e7);
-    meshGroup = new THREE.Group();
-    markerGroup = new THREE.Group();
-    axesGroup = new THREE.Group();
-    scene.add(meshGroup);
-    scene.add(markerGroup);
-    scene.add(axesGroup);
-    attachControls(renderer.domElement);
-    attachDropTarget(renderer.domElement);
-    window.addEventListener("resize", onResize);
-    loop();
-  }
-  function onResize() {
-    if (!renderer) return;
-    const w = viewport.clientWidth, h = viewport.clientHeight;
-    renderer.setSize(w, h);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-  }
-  function loop() {
-    raf = requestAnimationFrame(loop);
-    camera.position.set(
-      target.x + sph.r * Math.sin(sph.phi) * Math.cos(sph.theta),
-      target.y + sph.r * Math.cos(sph.phi),
-      target.z + sph.r * Math.sin(sph.phi) * Math.sin(sph.theta)
-    );
-    camera.lookAt(target);
-    renderer.render(scene, camera);
-  }
-  function attachControls(dom) {
-    let mode = 0, px = 0, py = 0;
-    dom.addEventListener("contextmenu", e => e.preventDefault());
-    dom.addEventListener("mousedown", e => { mode = (e.button === 2 || e.shiftKey) ? 2 : 1; px = e.clientX; py = e.clientY; });
-    window.addEventListener("mouseup", () => { mode = 0; });
-    window.addEventListener("mousemove", e => {
-      if (!mode) return;
-      const dx = e.clientX - px, dy = e.clientY - py;
-      px = e.clientX; py = e.clientY;
-      if (mode === 1) {
-        sph.theta += dx * 0.01;
-        sph.phi = Math.max(0.05, Math.min(Math.PI - 0.05, sph.phi - dy * 0.01));
-      } else {
-        const k = sph.r * 0.0015;
-        const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
-        const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
-        target.addScaledVector(right, -dx * k);
-        target.addScaledVector(up, dy * k);
-      }
-    });
-    dom.addEventListener("wheel", e => { e.preventDefault(); sph.r *= (1 + Math.sign(e.deltaY) * 0.12); }, { passive: false });
-  }
-
-  function showMesh(data) {
-    if (!renderer) initViewer();
-    viewHint.style.display = "none";
-    while (meshGroup.children.length) meshGroup.remove(meshGroup.children[0]);
-    lagers = [];
-    loads = [];
-    hidePreview();
-    rebuildMarkers();
-    renderLagerList();
-    renderLoadList();
-
-    const render = data.render, bbox = data.bbox;
-    const pos = new Float32Array(render.positions);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    geo.setIndex(render.tris);
-    geo.computeVertexNormals();
-    meshObj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial(
-      { color: 0x4a6480, side: THREE.DoubleSide, transparent: true, opacity: 0.95 }));
-    meshGroup.add(meshObj);
-
-    const egeo = new THREE.BufferGeometry();
-    egeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    egeo.setIndex(render.edges);
-    meshGroup.add(new THREE.LineSegments(egeo, new THREE.LineBasicMaterial({ color: 0xb4c8da })));
-
-    // full node table for snapping supports to exact nodes
-    const nd = data.nodes || {};
-    nodeIds = Object.keys(nd).map(Number);
-    nodeXYZ = new Float32Array(nodeIds.length * 3);
-    nodeIds.forEach((id, i) => {
-      const p = nd[id]; nodeXYZ[3 * i] = p[0]; nodeXYZ[3 * i + 1] = p[1]; nodeXYZ[3 * i + 2] = p[2];
-    });
-
-    const cx = (bbox[0] + bbox[3]) / 2, cy = (bbox[1] + bbox[4]) / 2, cz = (bbox[2] + bbox[5]) / 2;
-    const ext = [bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2]];
-    span = Math.max(ext[0], ext[1], ext[2], 1e-6);
-    const flat = ext.indexOf(Math.min(ext[0], ext[1], ext[2]));
-    normalDir = [0, 0, 0]; normalDir[flat] = 1;   // out-of-plane axis
-    home.target.set(cx, cy, cz);
-    home.r = span * 2.2;
-    fitView();
-    buildAxes();
-  }
-
-  // origin coordinate triad (red X, green Y, blue Z) at world (0,0,0)
-  function buildAxes() {
-    while (axesGroup.children.length) axesGroup.remove(axesGroup.children[0]);
-    const L = span * 0.35;
-    axesGroup.add(new THREE.AxesHelper(L));
-    const tip = [["X", 0xd11e1e, [L, 0, 0]], ["Y", 0x1a9c1a, [0, L, 0]], ["Z", 0x1e5fd1, [0, 0, L]]];
-    tip.forEach(([t, col, p]) => {
-      const s = axisLabelSprite(t, col);
-      s.position.set(p[0] * 1.12, p[1] * 1.12, p[2] * 1.12);
-      axesGroup.add(s);
-    });
-  }
-  function axisLabelSprite(text, color) {
-    const c = document.createElement("canvas"); c.width = c.height = 64;
-    const ctx = c.getContext("2d");
-    ctx.font = "bold 48px -apple-system, Arial, sans-serif";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.lineWidth = 7; ctx.strokeStyle = "rgba(5,9,14,0.9)"; ctx.strokeText(text, 32, 34);
-    ctx.fillStyle = "#ffffff"; ctx.fillText(text, 32, 34);
-    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
-    spr.scale.setScalar(span * 0.11);
-    return spr;
-  }
-
-  // ---- drag a palette tile onto a node ----
-  // Small coloured dot used as the drag image, so the big palette tile does not
-  // sit under the cursor and hide the grid you are aiming at.
-  const TYPE_COLOR = { festlager: "#c14a0c", force: "#1f7a1f", displacement: "#8a2fc1" };
-  const dragDot = document.createElement("div");
-  dragDot.style.cssText =
-    "position:fixed; left:-60px; top:-60px; width:14px; height:14px; border-radius:50%;" +
-    "border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,0.45); pointer-events:none; z-index:9999;";
-  document.body.appendChild(dragDot);
-
-  document.querySelectorAll(".pal-tile").forEach(tile => {
-    tile.addEventListener("dragstart", e => {
-      const type = tile.dataset.type || "festlager";
-      e.dataTransfer.setData("text/plain", (tile.dataset.kind || "lager") + ":" + type);
-      e.dataTransfer.effectAllowed = "copy";
-      dragDot.style.background = TYPE_COLOR[type] || "#c14a0c";
-      try { e.dataTransfer.setDragImage(dragDot, 8, 8); } catch (_) {}
-    });
-  });
-  function nodeTaken(id, skipLager, skipLoad) {
-    return lagers.some((l, k) => k !== skipLager && l.node === id)
-        || loads.some((l, k) => k !== skipLoad && l.node === id);
-  }
-
-  // translucent dot that snaps to the nearest node while a tile is dragged over
-  // the viewport, so you can see exactly where it will land before dropping.
-  let previewMarker = null;
-  function showPreviewAt(xyz) {
-    if (!scene) return;
-    if (!previewMarker) {
-      previewMarker = new THREE.Mesh(
-        new THREE.SphereGeometry(1, 16, 12),
-        new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent: true, opacity: 0.9, depthTest: false })
-      );
-      previewMarker.renderOrder = 999;
-      scene.add(previewMarker);
-    }
-    previewMarker.scale.setScalar(Math.max(span * 0.02, 1e-4));
-    previewMarker.position.set(xyz[0], xyz[1], xyz[2]);
-    previewMarker.visible = true;
-  }
-  function hidePreview() { if (previewMarker) previewMarker.visible = false; }
-
-  function nodeUnderPointer(dom, e) {
-    if (!meshObj || !nodeIds.length) return null;
-    const rect = dom.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1
-    );
-    raycaster.setFromCamera(ndc, camera);
-    const hit = raycaster.intersectObject(meshObj, false)[0];
-    return hit ? nearestNode(hit.point) : null;
-  }
-
-  function attachDropTarget(dom) {
-    dom.addEventListener("dragover", e => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
-      const n = nodeUnderPointer(dom, e);
-      if (n) showPreviewAt(n.xyz); else hidePreview();
-    });
-    dom.addEventListener("dragleave", () => hidePreview());
-    dom.addEventListener("drop", e => {
-      e.preventDefault();
-      hidePreview();
-      if (!meshObj || !nodeIds.length) { msg.textContent = "Process a STEP file before placing anything."; return; }
-      const [kind, type] = (e.dataTransfer.getData("text/plain") || "lager:festlager").split(":");
-      const n = nodeUnderPointer(dom, e);
-      if (!n) { msg.textContent = "Drop the tile onto the mesh surface."; return; }
-      if (nodeTaken(n.id, -1, -1)) { msg.textContent = "Node " + n.id + " already has a support or load."; return; }
-      if (kind === "load") {
-        loads.push({ type, node: n.id, xyz: n.xyz, dir: normalDir.slice(), mag: 1 });
-        renumberLoads(); rebuildMarkers(); renderLoadList();
-        msg.textContent = `${type} ${loads.length} placed on node ${n.id}.`;
-      } else {
-        lagers.push({ type, node: n.id, xyz: n.xyz });
-        renumberLagers(); rebuildMarkers(); renderLagerList();
-        msg.textContent = `Festlager ${lagers.length} placed on node ${n.id}.`;
-      }
-    });
-  }
-  function nearestNode(p) {
-    let best = -1, bd = Infinity;
-    for (let i = 0; i < nodeIds.length; i++) {
-      const dx = nodeXYZ[3 * i] - p.x, dy = nodeXYZ[3 * i + 1] - p.y, dz = nodeXYZ[3 * i + 2] - p.z;
-      const d = dx * dx + dy * dy + dz * dz;
-      if (d < bd) { bd = d; best = i; }
-    }
-    return best < 0 ? null : { id: nodeIds[best], xyz: [nodeXYZ[3 * best], nodeXYZ[3 * best + 1], nodeXYZ[3 * best + 2]] };
-  }
-  function renumberLagers() { lagers.forEach((l, i) => l.index = i + 1); }
-  function renumberLoads() { loads.forEach((l, i) => l.index = i + 1); }
-
-  function labelSprite(text, bg) {
-    const c = document.createElement("canvas"); c.width = c.height = 64;
-    const ctx = c.getContext("2d");
-    ctx.fillStyle = bg || "#c14a0c"; ctx.beginPath(); ctx.arc(32, 32, 30, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#fff"; ctx.font = "bold 34px -apple-system, Arial, sans-serif";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(text), 32, 35);
-    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
-    spr.scale.setScalar(span * 0.08);
-    return spr;
-  }
-  function rebuildMarkers() {
-    if (!markerGroup) return;
-    while (markerGroup.children.length) markerGroup.remove(markerGroup.children[0]);
-    const r = span * 0.012;
-    lagers.forEach(l => {
-      const g = new THREE.Group();
-      g.add(new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12),
-        new THREE.MeshBasicMaterial({ color: 0xc14a0c })));
-      g.add(labelSprite(l.index, "#c14a0c"));
-      g.position.set(l.xyz[0], l.xyz[1], l.xyz[2]);
-      markerGroup.add(g);
-    });
-    const alen = span * 0.16;
-    loads.forEach(l => {
-      const d = new THREE.Vector3(l.dir[0], l.dir[1], l.dir[2]);
-      if (d.lengthSq() === 0) d.set(0, 1, 0);
-      d.normalize();
-      const col = l.type === "force" ? 0x1f7a1f : 0x8a2fc1;   // force green, displacement purple
-      // arrow points TOWARD the node (tail is offset along -dir)
-      const tail = new THREE.Vector3(l.xyz[0], l.xyz[1], l.xyz[2]).addScaledVector(d, -alen);
-      const arr = new THREE.ArrowHelper(d, tail, alen, col, alen * 0.32, alen * 0.2);
-      markerGroup.add(arr);
-      const spr = labelSprite(l.index, l.type === "force" ? "#1f7a1f" : "#8a2fc1");
-      spr.position.set(l.xyz[0], l.xyz[1], l.xyz[2]);
-      markerGroup.add(spr);
-    });
-  }
-  const numBox = (cls, i, v, step) =>
-    `<input type="number" class="${cls}" data-i="${i}"${step ? ` step="${step}"` : ""} value="${v}" ` +
-    `style="width:66px; padding:3px 5px; font-size:12.5px;">`;
-  // X/Y/Z inputs stacked vertically in one cell (rows are too narrow for a line)
-  const xyzStack = (classes, i, vals, step) =>
-    `<div style="display:flex; flex-direction:column; gap:3px;">` +
-    vals.map((v, k) => `<span style="font-size:12px;">${"XYZ"[k]}&nbsp;${numBox(classes[k], i, v, step)}</span>`).join("") +
-    `</div>`;
-
-  // move a placed item to the node nearest a typed X/Y/Z (snaps to the grid)
-  function moveItem(list, i, x, y, z, redraw, skipLager, skipLoad) {
-    const n = nearestNode({ x: Number(x), y: Number(y), z: Number(z) });
-    if (!n) return;
-    if (nodeTaken(n.id, skipLager, skipLoad)) { msg.textContent = "Node " + n.id + " already has a support or load."; redraw(); return; }
-    list[i].node = n.id; list[i].xyz = n.xyz;
-    rebuildMarkers(); redraw();
-  }
-
-  function renderLagerList() {
-    if (!lagers.length) { lagerListBox.innerHTML = '<div class="hint">No supports placed yet.</div>'; return; }
-    const st = Number(spacingInput.value) || 1;
-    const rows = lagers.map((l, i) =>
-      `<tr><td>Lager ${l.index}</td><td>${l.type}</td>` +
-      `<td>${xyzStack(["lgx", "lgy", "lgz"], i, [l.xyz[0].toFixed(2), l.xyz[1].toFixed(2), l.xyz[2].toFixed(2)], st)}</td>` +
-      `<td><button type="button" class="lg-del btn-festlager" data-i="${i}">remove</button></td></tr>`
-    ).join("");
-    lagerListBox.innerHTML =
-      `<table class="resultsTable"><thead><tr><th>Support</th><th>Type</th><th>Position (X, Y, Z)</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
-    lagerListBox.querySelectorAll(".lg-del").forEach(b => b.addEventListener("click", () => {
-      lagers.splice(Number(b.dataset.i), 1);
-      renumberLagers(); rebuildMarkers(); renderLagerList();
-    }));
-    lagerListBox.querySelectorAll(".lgx, .lgy, .lgz").forEach(inp => inp.addEventListener("change", () => {
-      const i = Number(inp.dataset.i), row = inp.closest("tr");
-      moveItem(lagers, i, row.querySelector(".lgx").value, row.querySelector(".lgy").value, row.querySelector(".lgz").value,
-        renderLagerList, i, -1);
-    }));
-  }
-
-  function renderLoadList() {
-    if (!loads.length) { loadListBox.innerHTML = '<div class="hint">No loads placed yet.</div>'; return; }
-    const st = Number(spacingInput.value) || 1;
-    const rows = loads.map((l, i) =>
-      `<tr><td>Load ${l.index}</td><td>${l.type === "force" ? "force (N)" : "displacement (mm)"}</td>` +
-      `<td>${xyzStack(["ldx", "ldy", "ldz"], i, [l.xyz[0].toFixed(2), l.xyz[1].toFixed(2), l.xyz[2].toFixed(2)], st)}</td>` +
-      `<td>${xyzStack(["ldu", "ldv", "ldw"], i, [l.dir[0], l.dir[1], l.dir[2]])}</td>` +
-      `<td>${numBox("ldm", i, l.mag)}</td>` +
-      `<td><button type="button" class="ld-del ${l.type === "force" ? "btn-force" : "btn-displacement"}" data-i="${i}">remove</button></td></tr>`
-    ).join("");
-    loadListBox.innerHTML =
-      `<table class="resultsTable"><thead><tr><th>Load</th><th>Type</th><th>Position (X, Y, Z)</th><th>Direction (X, Y, Z)</th><th>Magnitude</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
-    loadListBox.querySelectorAll(".ld-del").forEach(b => b.addEventListener("click", () => {
-      loads.splice(Number(b.dataset.i), 1);
-      renumberLoads(); rebuildMarkers(); renderLoadList();
-    }));
-    loadListBox.querySelectorAll(".ldx, .ldy, .ldz").forEach(inp => inp.addEventListener("change", () => {
-      const i = Number(inp.dataset.i), row = inp.closest("tr");
-      moveItem(loads, i, row.querySelector(".ldx").value, row.querySelector(".ldy").value, row.querySelector(".ldz").value,
-        renderLoadList, -1, i);
-    }));
-    loadListBox.querySelectorAll(".ldu, .ldv, .ldw, .ldm").forEach(inp => inp.addEventListener("change", () => {
-      const i = Number(inp.dataset.i), row = inp.closest("tr");
-      loads[i].dir = [
-        Number(row.querySelector(".ldu").value) || 0,
-        Number(row.querySelector(".ldv").value) || 0,
-        Number(row.querySelector(".ldw").value) || 0,
-      ];
-      loads[i].mag = Number(row.querySelector(".ldm").value) || 0;
-      rebuildMarkers();
-    }));
-  }
-
   // ---- expose the on-page model for the .inp preview and the optimization search ----
-  // Two mutually exclusive sources for geometry/mesh/supports/loads: this
-  // STEP-drop + gmsh pipeline (meshSource/lagers/loads, below), or an
-  // imported PrePoMax .inp (window.femImportState, set by the separate
-  // "import .inp" script block). Whichever was actually used last wins --
-  // an import overrides the STEP fields so the two paths can't silently mix.
+  // Geometry/mesh/supports/loads always come from an imported PrePoMax .inp
+  // (window.femImportState, set by the "import .inp" script block below);
+  // this app only ever contributes material + composite layup on top of it.
   window.femCollectModel = function () {
     const v = id => { const el = document.getElementById(id); return el ? el.value : ""; };
-    const base = {
-      source_path: meshSource,
-      path: meshSource,
-      spacing: v("stepSpacing"),
+    const imp = window.femImportState || {};
+    return {
       material_name: v("matName"),
       constants: {
         E1: v("matE1"), E2: v("matE2"), E3: v("matE3"),
@@ -918,24 +430,17 @@
       },
       thickness: v("layupThk"),
       symmetric: !!(document.getElementById("layupSym") || {}).checked,
-      lagers: lagers.map(l => ({ index: l.index, node: l.node, type: l.type })),
-      loads: loads.map(l => ({ index: l.index, node: l.node, type: l.type, dir: l.dir, mag: l.mag })),
+      import_inp_path: imp.path || "",
+      import_elset: imp.elset || "",
+      import_rf_nset: imp.rfNset || "",
     };
-    const imp = window.femImportState;
-    if (imp && imp.path) {
-      base.import_inp_path = imp.path;
-      base.import_elset = imp.elset;
-      base.import_rf_nset = imp.rfNset || "";
-    }
-    return base;
   };
 
   // ---- full .inp preview ----
   fullInpBtn.addEventListener("click", async () => {
-    const importing = !!(window.femImportState && window.femImportState.path);
-    if (!importing && !meshSource) { fullInpMsg.textContent = "Process a STEP file first."; return; }
-    if (!importing && !lagers.length) { fullInpMsg.textContent = "Place at least one Festlager first."; return; }
-    if (importing && !window.femImportState.elset) { fullInpMsg.textContent = "Pick the element set for the composite layup."; return; }
+    const imp = window.femImportState || {};
+    if (!imp.path) { fullInpMsg.textContent = "Import a PrePoMax .inp first."; return; }
+    if (!imp.elset) { fullInpMsg.textContent = "Pick the element set for the composite layup."; return; }
     const thk = (document.getElementById("layupThk") || {}).value;
     if (!String(thk).trim() || !(Number(thk) > 0)) { fullInpMsg.textContent = "Enter the ply thickness in the Layup section first."; return; }
     const m = window.femCollectModel();
@@ -1117,13 +622,8 @@
   btn.addEventListener("click", async () => {
     if (!window.femCollectModel) return;
     const m = window.femCollectModel();
-    if (!m.import_inp_path) {
-      if (!m.source_path) { msg.textContent = "Process a STEP file first."; return; }
-      if (!m.lagers.length) { msg.textContent = "Place at least one Festlager first."; return; }
-    } else if (!m.import_elset) {
-      msg.textContent = "Pick the element set for the composite layup.";
-      return;
-    }
+    if (!m.import_inp_path) { msg.textContent = "Import a PrePoMax .inp first."; return; }
+    if (!m.import_elset) { msg.textContent = "Pick the element set for the composite layup."; return; }
     const thk = (document.getElementById("layupThk") || {}).value;
     if (!String(thk).trim() || !(Number(thk) > 0)) { msg.textContent = "Enter the ply thickness in the Layup section first."; return; }
     const layup = ((document.getElementById("layupAngles") || {}).value || "").trim();
@@ -1186,7 +686,7 @@
       if (data.error) { msg.innerHTML = `<span class="row-error">${data.error}</span>`; return; }
       msg.textContent = (data.converged ? "Converged" : "Finished (check log)") +
         ` — result files in ${data.output_folder}`;
-      renderSimResults(data.rf_by_lager);
+      renderSimResults(data.rf_total);
       renderPuckResults(data.puck);
     } catch (err) {
       clearInterval(timer);
@@ -1198,18 +698,13 @@
 
   function renderSimResults(rf) {
     const box = document.getElementById("simResults");
-    const ids = Object.keys(rf || {}).sort((a, b) => Number(a) - Number(b));
-    if (!ids.length) { box.innerHTML = ""; return; }
-    const rows = ids.map(id => {
-      const c = rf[id] || [0, 0, 0];
-      const tot = Math.sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
-      return `<tr><td>Lager ${id}</td><td>${c[0].toFixed(4)}</td><td>${c[1].toFixed(4)}</td>` +
-             `<td>${c[2].toFixed(4)}</td><td>${tot.toFixed(4)}</td></tr>`;
-    }).join("");
+    if (!rf) { box.innerHTML = ""; return; }
+    const row = `<tr><td>${escapeHtml(rf.nset)}</td><td>${rf.fx.toFixed(4)}</td><td>${rf.fy.toFixed(4)}</td>` +
+      `<td>${rf.fz.toFixed(4)}</td><td>${rf.magnitude.toFixed(4)}</td></tr>`;
     box.innerHTML =
       `<table class="resultsTable"><thead><tr>` +
-      `<th>Support</th><th>Force X (N)</th><th>Force Y (N)</th><th>Force Z (N)</th><th>Total force (N)</th>` +
-      `</tr></thead><tbody>${rows}</tbody></table>`;
+      `<th>Node set</th><th>Force X (N)</th><th>Force Y (N)</th><th>Force Z (N)</th><th>Total force (N)</th>` +
+      `</tr></thead><tbody>${row}</tbody></table>`;
   }
 
   // Reads the Puck strength fields. Returns null if every field is blank
@@ -1409,15 +904,10 @@
 
     const m = window.femCollectModel ? window.femCollectModel() : {};
     if (!m.import_inp_path) {
-      if (!m.source_path) {
-        progress.innerHTML = `<span class="row-error">Process a STEP file first (no meshed model).</span>`;
-        return;
-      }
-      if (!m.lagers || !m.lagers.length) {
-        progress.innerHTML = `<span class="row-error">Drop at least one Festlager on the model first.</span>`;
-        return;
-      }
-    } else if (!m.import_elset) {
+      progress.innerHTML = `<span class="row-error">Import a PrePoMax .inp first.</span>`;
+      return;
+    }
+    if (!m.import_elset) {
       progress.innerHTML = `<span class="row-error">Pick the element set for the composite layup.</span>`;
       return;
     }
