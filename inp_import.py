@@ -7,11 +7,17 @@ Workflow this supports: the user builds geometry, mesh, supports and loads
 in PrePoMax (more capable there than this app's own click-to-place UI), runs
 it once WITHOUT a material assigned (so ccx errors out on the undefined
 material -- expected, not a bug), and uploads the resulting .inp here. This
-module strips the resulting dangling/incomplete *Material and *Shell/*Solid
-section cards (the only thing missing) and leaves everything else -- nodes,
-elements, *Nset/*Elset, *Boundary, *Cload/*Dload, the *Step structure --
-untouched, so the app only ever adds composite-specific content on top of
-PrePoMax's own geometry/BC/load work.
+module replaces ONLY the dangling/incomplete *Shell/*Solid section card for
+the one Elset the user picked for the composite layup (plus that section's
+own *Material, if nothing else still needs it) -- every other section,
+material, node, element, set, *Boundary/*Cload/*Dload and the *Step
+structure passes through completely untouched. This matters because a real
+PrePoMax export can define several parts/sections in one .inp (confirmed
+2026-10-13 against a real user model with 4 Sections and 2 Materials);
+stripping every section/material in the file instead of just the target one
+orphans the other parts' thickness and makes ccx fail with '*ERROR in
+gen3delem: first thickness ... is zero' on whichever element happens to be
+first in the file.
 
 Parsing is a flat, generic Abaqus/CalculiX keyword-card split (keyword line
 starts with a single '*', comment lines start with '**', a card's body is
@@ -229,33 +235,107 @@ def split_preamble_and_step(cards):
     return cards[:step_idx], cards[step_idx:]
 
 
-# Cards that belong to material/section definition -- dropped so this app's
-# own material_block()/section_block() can replace them. DENSITY/EXPANSION
-# are material sub-cards PrePoMax sometimes writes even for an otherwise
-# undefined material; harmless to drop if present, no-op if not.
-_MATERIAL_SECTION_KEYWORDS = {
-    "MATERIAL", "ELASTIC", "DENSITY", "EXPANSION",
-    "SHELL SECTION", "SOLID SECTION",
-}
+# Sub-cards that belong to a *Material definition -- DENSITY/EXPANSION are
+# material sub-cards PrePoMax sometimes writes even for an otherwise
+# undefined material; harmless to drop alongside it if present.
+_MATERIAL_SUBCARD_KEYWORDS = {"ELASTIC", "DENSITY", "EXPANSION"}
 
 
-def strip_material_and_section(preamble_cards):
-    """Remove any *Material/*Elastic/*Shell section/*Solid section cards.
-    Returns (cleaned_cards, elset_name_from_removed_section_or_None) -- the
-    Elset= value off a removed *Shell/*Solid section card is what the
-    composite layup should target, so it's surfaced even though the card
-    itself is dropped.
-    """
-    cleaned = []
-    elset_found = None
+def find_section_elsets(preamble_cards):
+    """Every Elset= value referenced by a *Shell section/*Solid section card
+    in the preamble, in document order, without removing anything."""
+    out = []
     for c in preamble_cards:
         if c["keyword"] in ("SHELL SECTION", "SOLID SECTION"):
-            elset_found = elset_found or _keyword_params(c["header"]).get("ELSET")
+            elset = _keyword_params(c["header"]).get("ELSET")
+            if elset:
+                out.append(elset)
+    return out
+
+
+def find_incomplete_section_elsets(preamble_cards):
+    """Elset= values from *Shell/*Solid section cards whose Material= name
+    has no matching *Material card anywhere in the preamble -- i.e. the
+    genuinely material-less part(s) a "run once with no material" PrePoMax
+    export leaves behind. A model with several parts (confirmed real case:
+    4 Sections, 2 Materials) can have other, fully-defined sections too;
+    those must NOT be suggested as the layup target.
+    """
+    defined = {
+        (_keyword_params(c["header"]).get("NAME") or "").strip().upper()
+        for c in preamble_cards if c["keyword"] == "MATERIAL"
+    }
+    out = []
+    for c in preamble_cards:
+        if c["keyword"] in ("SHELL SECTION", "SOLID SECTION"):
+            params = _keyword_params(c["header"])
+            elset = params.get("ELSET")
+            material = (params.get("MATERIAL") or "").strip().upper()
+            if elset and material not in defined:
+                out.append(elset)
+    return out
+
+
+def remove_section_for_elset(preamble_cards, target_elset):
+    """Remove ONLY the *Shell section/*Solid section card for target_elset
+    (plus its *Material, if that material isn't also used by some OTHER
+    section left in place). Every other card -- other parts' sections,
+    other materials, nodes, elements, sets, everything -- passes through
+    untouched.
+
+    This is deliberately narrow: a real PrePoMax export can define several
+    parts/sections in one .inp (confirmed 2026-10-13 against a real user
+    model with 4 Sections and 2 Materials) -- stripping every section/
+    material card in the file, not just the one the user is replacing,
+    orphans the other parts' thickness definitions and makes ccx fail with
+    '*ERROR in gen3delem: first thickness ... is zero' on whichever element
+    happens to be first in the file.
+
+    Returns (cleaned_cards, removed_material_name_or_None).
+    """
+    target_u = (target_elset or "").strip().upper()
+    removed_material = None
+    section_cards, other_cards = [], []
+    for c in preamble_cards:
+        if c["keyword"] in ("SHELL SECTION", "SOLID SECTION"):
+            section_cards.append(c)
+        else:
+            other_cards.append(c)
+
+    kept_sections = []
+    for c in section_cards:
+        params = _keyword_params(c["header"])
+        if (params.get("ELSET") or "").strip().upper() == target_u:
+            removed_material = params.get("MATERIAL")
+            continue  # drop only this one
+        kept_sections.append(c)
+
+    # Only drop the Material/Elastic/... cards for removed_material if no
+    # remaining section still needs them.
+    still_needed = removed_material and any(
+        (_keyword_params(c["header"]).get("MATERIAL") or "").strip().upper()
+        == removed_material.strip().upper()
+        for c in kept_sections
+    )
+
+    cleaned = []
+    in_removed_material = False
+    for c in other_cards:
+        if c["keyword"] == "MATERIAL":
+            name = (_keyword_params(c["header"]).get("NAME") or "").strip()
+            in_removed_material = bool(
+                removed_material and not still_needed
+                and name.upper() == removed_material.strip().upper()
+            )
+            if in_removed_material:
+                continue
+        elif c["keyword"] in _MATERIAL_SUBCARD_KEYWORDS and in_removed_material:
             continue
-        if c["keyword"] in _MATERIAL_SECTION_KEYWORDS:
-            continue
+        else:
+            in_removed_material = False
         cleaned.append(c)
-    return cleaned, elset_found
+
+    return cleaned + kept_sections, removed_material
 
 
 def inspect_inp(text):
@@ -268,7 +348,13 @@ def inspect_inp(text):
     """
     cards = parse_cards(text)
     preamble, step = split_preamble_and_step(cards)
-    _, elset_from_section = strip_material_and_section(preamble)
+    # Prefer a section whose material is genuinely undefined (the actual
+    # "ran once with no material" part) over just the first section card in
+    # the file -- a multi-part model can have other, fully-defined sections
+    # that must not be suggested as the layup target.
+    incomplete = find_incomplete_section_elsets(preamble)
+    section_elsets = incomplete or find_section_elsets(preamble)
+    elset_from_section = section_elsets[0] if section_elsets else None
     elsets = find_set_names(preamble, "ELSET")
     # Report types post-upgrade (S8 -> S8R) so the UI doesn't flag something
     # splice_layup() is about to fix anyway -- see upgrade_s8_to_s8r().
@@ -302,14 +388,16 @@ def splice_layup(base_text, elset_name, material_name, constants,
     """
     cards = parse_cards(base_text)
     preamble, step = split_preamble_and_step(cards)
-    preamble, found_elset = strip_material_and_section(preamble)
 
-    target_elset = (elset_name or found_elset or "").strip()
+    section_elsets = find_section_elsets(preamble)
+    target_elset = (elset_name or (section_elsets[0] if section_elsets else "")).strip()
     if not target_elset:
         raise InpWriteError(
             "Could not tell which element set the composite layup applies to "
             "-- pick one of the imported .inp's element sets."
         )
+
+    preamble, _ = remove_section_for_elset(preamble, target_elset)
 
     # S8 -> S8R is a lossless relabel (same element, same connectivity, see
     # upgrade_s8_to_s8r's docstring), so it's fixed here rather than
