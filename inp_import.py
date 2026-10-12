@@ -99,6 +99,97 @@ def find_set_names(cards, kind):
     return names
 
 
+# CalculiX only allows the Composite option on *Shell section for these two
+# element types (ccx 2.22 manual, *SHELL SECTION) -- anything else fails
+# deep inside ccx with "*ERROR reading *SHELL SECTION: ... can only be used
+# for S8R or S6 shell elements", which is confirmed against a real PrePoMax
+# export (2026-10-13): PrePoMax's default mesh used a different shell type,
+# ccx rejected it. Checking this at import time instead of after a wasted
+# solve.
+_COMPOSITE_SHELL_TYPES = {"S8R", "S6"}
+
+
+def _parse_element_types(cards):
+    """Map element id (int) -> its *Element card's Type= value, scanning
+    every *Element card's body rows (first comma-separated field is the
+    element id; the rest is connectivity, ignored here)."""
+    types = {}
+    for c in cards:
+        if c["keyword"] != "ELEMENT":
+            continue
+        etype = (_keyword_params(c["header"]).get("TYPE") or "").strip().upper()
+        for line in c["body"]:
+            line = line.strip().rstrip(",")
+            if not line:
+                continue
+            first = line.split(",", 1)[0].strip()
+            if first.isdigit():
+                types[int(first)] = etype
+    return types
+
+
+def _parse_id_list(body_lines):
+    """Parse the body of a plain (non-generate) *Elset/*Nset card: comma-
+    separated integer ids, possibly spread over several lines."""
+    ids = []
+    for line in body_lines:
+        for tok in line.strip().rstrip(",").split(","):
+            tok = tok.strip()
+            if tok.isdigit():
+                ids.append(int(tok))
+    return ids
+
+
+def _resolve_elset_members(cards, elset_name):
+    """Element ids belonging to elset_name: from *Element cards with an
+    inline Elset= matching, and/or standalone *Elset cards (GENERATE
+    start/end/step triples, or plain id lists). Returns None if the elset
+    isn't found at all (caller decides what that means), rather than an
+    empty set, so "not found" and "found but empty" aren't confused.
+    """
+    elset_name_u = elset_name.strip().upper()
+    found = False
+    members = set()
+    for c in cards:
+        if c["keyword"] == "ELEMENT":
+            params = _keyword_params(c["header"])
+            if (params.get("ELSET") or "").strip().upper() == elset_name_u:
+                found = True
+                for line in c["body"]:
+                    first = line.strip().rstrip(",").split(",", 1)[0].strip()
+                    if first.isdigit():
+                        members.add(int(first))
+        elif c["keyword"] == "ELSET":
+            params = _keyword_params(c["header"])
+            if (params.get("ELSET") or "").strip().upper() == elset_name_u:
+                found = True
+                is_generate = any(
+                    p.strip().upper() == "GENERATE" for p in c["header"].split(",")[1:]
+                )
+                if is_generate:
+                    for line in c["body"]:
+                        parts = [p.strip() for p in line.strip().rstrip(",").split(",") if p.strip()]
+                        if len(parts) >= 2 and all(p.lstrip("-").isdigit() for p in parts[:3] if p):
+                            start = int(parts[0])
+                            end = int(parts[1])
+                            step = int(parts[2]) if len(parts) > 2 and parts[2] else 1
+                            members.update(range(start, end + 1, step))
+                else:
+                    members.update(_parse_id_list(c["body"]))
+    return members if found else None
+
+
+def elset_element_types(cards, elset_name):
+    """Sorted list of distinct element Type= values found among elset_name's
+    members. Empty list if the elset has no resolvable members (e.g. it's
+    defined only by nesting other elsets by name -- not handled here)."""
+    members = _resolve_elset_members(cards, elset_name)
+    if not members:
+        return []
+    id_to_type = _parse_element_types(cards)
+    return sorted({id_to_type[i] for i in members if i in id_to_type})
+
+
 def split_preamble_and_step(cards):
     step_idx = next((i for i, c in enumerate(cards) if c["keyword"] == "STEP"), None)
     if step_idx is None:
@@ -150,9 +241,12 @@ def inspect_inp(text):
     cards = parse_cards(text)
     preamble, step = split_preamble_and_step(cards)
     _, elset_from_section = strip_material_and_section(preamble)
+    elsets = find_set_names(preamble, "ELSET")
+    elset_types = {name: elset_element_types(preamble, name) for name in elsets}
     return {
         "nsets": find_set_names(preamble, "NSET"),
-        "elsets": find_set_names(preamble, "ELSET"),
+        "elsets": elsets,
+        "elset_types": elset_types,
         "suggested_elset": elset_from_section,
         "num_cards": len(cards),
     }
@@ -182,6 +276,16 @@ def splice_layup(base_text, elset_name, material_name, constants,
         raise InpWriteError(
             "Could not tell which element set the composite layup applies to "
             "-- pick one of the imported .inp's element sets."
+        )
+
+    found_types = elset_element_types(preamble, target_elset)
+    bad_types = sorted(set(found_types) - _COMPOSITE_SHELL_TYPES)
+    if bad_types:
+        raise InpWriteError(
+            f"Elset {target_elset!r} contains {', '.join(bad_types)} elements. "
+            "CalculiX's Composite shell section only works with S8R or S6 shell "
+            "elements -- remesh this part in PrePoMax using S8R (quad) or S6 "
+            "(triangle) elements, re-export, and re-upload."
         )
 
     if nlgeom == "auto":

@@ -496,6 +496,19 @@
     ).join("");
   }
 
+  // CalculiX's Composite shell section only works with S8R/S6 elements --
+  // flag anything else right in the dropdown instead of letting the user
+  // find out from a ccx error after a wasted solve.
+  const COMPOSITE_OK_TYPES = ["S8R", "S6"];
+  function fillElsetPicker(sel, names, selected, elsetTypes) {
+    sel.innerHTML = names.map(n => {
+      const types = (elsetTypes || {})[n] || [];
+      const bad = types.length && types.some(t => !COMPOSITE_OK_TYPES.includes(t));
+      const label = types.length ? `${n}  (${types.join(", ")})${bad ? " ⚠" : ""}` : n;
+      return `<option value="${escapeHtml(n)}"${n === selected ? " selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
+  }
+
   async function upload() {
     if (!pickedFile) return;
     dz.innerHTML = `Uploading <strong>${escapeHtml(pickedFile.name)}</strong>…`;
@@ -514,20 +527,32 @@
         msg.innerHTML = `<span class="row-error">No element sets found in this .inp -- is it a complete PrePoMax export?</span>`;
         return;
       }
-      fillPicker(elsetPick, data.elsets, data.suggested_elset || data.elsets[0]);
+      const defaultElset = data.suggested_elset || data.elsets[0];
+      fillElsetPicker(elsetPick, data.elsets, defaultElset, data.elset_types);
       fillPicker(rfNsetPick, ["(skip)", ...data.nsets], "(skip)");
       pickers.style.display = "flex";
+      const warnIncompatible = () => {
+        const types = (data.elset_types || {})[elsetPick.value] || [];
+        const bad = types.filter(t => !COMPOSITE_OK_TYPES.includes(t));
+        if (bad.length) {
+          msg.innerHTML = `<span class="row-error">Elset "${escapeHtml(elsetPick.value)}" has ` +
+            `${escapeHtml(bad.join(", "))} elements &mdash; CalculiX's Composite shell section needs ` +
+            `S8R or S6. Remesh this part in PrePoMax with one of those element types and re-upload.</span>`;
+        } else {
+          msg.textContent = `${data.nsets.length} node set(s), ${data.elsets.length} element set(s) found.`;
+        }
+      };
       const applyState = () => {
         window.femImportState = {
           path: data.import_inp_path,
           elset: elsetPick.value,
           rfNset: rfNsetPick.value === "(skip)" ? null : rfNsetPick.value,
         };
+        warnIncompatible();
       };
       elsetPick.addEventListener("change", applyState);
       rfNsetPick.addEventListener("change", applyState);
       applyState();
-      msg.textContent = `${data.nsets.length} node set(s), ${data.elsets.length} element set(s) found.`;
     } catch (err) {
       msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
     }
