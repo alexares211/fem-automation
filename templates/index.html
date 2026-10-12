@@ -109,7 +109,10 @@
       text-transform: uppercase; color: var(--text-dim); list-style: none;
     }
     details.advanced > summary::-webkit-details-marker { display: none; }
-    details.advanced > summary::before { content: "\25b8  "; color: var(--accent); }
+    details.advanced > summary::before {
+      content: "\25b8  "; color: var(--accent); font-size: 18px; display: inline-block;
+      width: 16px; vertical-align: -2px;
+    }
     details.advanced[open] > summary::before { content: "\25be  "; }
     details.advanced > summary:hover { color: var(--text); }
     details.advanced > .row { margin-top: 12px; }
@@ -305,7 +308,7 @@
       <div class="sec-head"><span class="sec-num">05</span><h2 class="sec-title">Simulate</h2></div>
       <p class="sec-note">One run with the layup above.</p>
 
-      <details class="advanced" id="puck_advanced">
+      <details class="advanced" id="puck_advanced" open>
         <summary>Puck failure check (optional &mdash; leave blank to skip)</summary>
         <div class="row">
           <div><label for="puck_S11t">S11t (fiber tension)</label><input type="number" id="puck_S11t" step="any" min="0"></div>
