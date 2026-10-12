@@ -264,6 +264,24 @@
         <div><label for="matG23">G23</label><input type="number" id="matG23" step="any" value="3228.6"></div>
       </div>
       <div class="hint">MPa &middot; orthotropic engineering constants</div>
+
+      <details class="advanced" id="puck_advanced" open>
+        <summary>Strength &mdash; for Puck failure check (optional &mdash; leave blank to skip)</summary>
+        <div class="row">
+          <div><label for="puck_S11t">S11t (fiber tension)</label><input type="number" id="puck_S11t" step="any" min="0"></div>
+          <div><label for="puck_S11c">S11c (fiber compression)</label><input type="number" id="puck_S11c" step="any" min="0"></div>
+          <div><label for="puck_S22t">S22t (transverse tension)</label><input type="number" id="puck_S22t" step="any" min="0"></div>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <div><label for="puck_S22c">S22c (transverse compression)</label><input type="number" id="puck_S22c" step="any" min="0"></div>
+          <div><label for="puck_S21s">S21s (in-plane shear)</label><input type="number" id="puck_S21s" step="any" min="0"></div>
+          <div><label for="puck_p21p">p21&#43; (Mode A slope)</label><input type="number" id="puck_p21p" step="any" min="0" placeholder="typ. 0.30"></div>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <div><label for="puck_p21m">p21&minus; (Mode B slope, optional)</label><input type="number" id="puck_p21m" step="any" min="0" placeholder="= p21+"></div>
+        </div>
+        <div class="hint">All five strengths in the same stress unit as E/G above (e.g. MPa). Fill in all five strengths and p21+ to run the check; leave any strength blank to skip it. Reads S11/S22/S12 per ply from the same solve&nbsp;&mdash; no extra CalculiX run.</div>
+      </details>
     </section>
 
     <section class="panel" id="layupSection">
@@ -306,25 +324,7 @@
 
     <section class="panel" id="simulateSection">
       <div class="sec-head"><span class="sec-num">05</span><h2 class="sec-title">Simulate</h2></div>
-      <p class="sec-note">One run with the layup above.</p>
-
-      <details class="advanced" id="puck_advanced" open>
-        <summary>Puck failure check (optional &mdash; leave blank to skip)</summary>
-        <div class="row">
-          <div><label for="puck_S11t">S11t (fiber tension)</label><input type="number" id="puck_S11t" step="any" min="0"></div>
-          <div><label for="puck_S11c">S11c (fiber compression)</label><input type="number" id="puck_S11c" step="any" min="0"></div>
-          <div><label for="puck_S22t">S22t (transverse tension)</label><input type="number" id="puck_S22t" step="any" min="0"></div>
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <div><label for="puck_S22c">S22c (transverse compression)</label><input type="number" id="puck_S22c" step="any" min="0"></div>
-          <div><label for="puck_S21s">S21s (in-plane shear)</label><input type="number" id="puck_S21s" step="any" min="0"></div>
-          <div><label for="puck_p21p">p21&#43; (Mode A slope)</label><input type="number" id="puck_p21p" step="any" min="0" placeholder="typ. 0.30"></div>
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <div><label for="puck_p21m">p21&minus; (Mode B slope, optional)</label><input type="number" id="puck_p21m" step="any" min="0" placeholder="= p21+"></div>
-        </div>
-        <div class="hint">All five strengths in the same stress unit as your material's E/G (e.g. MPa). Fill in all five strengths and p21+ to run the check; leave any strength blank to skip it. Reads S11/S22/S12 per ply from the same solve&nbsp;&mdash; no extra CalculiX run.</div>
-      </details>
+      <p class="sec-note">One run with the layup above. Puck strengths are set in the Material section above.</p>
 
       <button type="button" class="btn-run" id="simBtn" style="margin-top:12px;">Run</button>
       <div id="simMsg" class="progress-line"></div>
