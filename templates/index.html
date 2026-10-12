@@ -110,8 +110,8 @@
     }
     details.advanced > summary::-webkit-details-marker { display: none; }
     details.advanced > summary::before {
-      content: "\25b8  "; color: var(--accent); font-size: 18px; display: inline-block;
-      width: 16px; vertical-align: -2px;
+      content: "\25b8  "; color: var(--accent); font-size: 26px; display: inline-block;
+      width: 20px; vertical-align: -5px;
     }
     details.advanced[open] > summary::before { content: "\25be  "; }
     details.advanced > summary:hover { color: var(--text); }
@@ -268,19 +268,19 @@
       <details class="advanced" id="puck_advanced" open>
         <summary>Strength &mdash; for Puck failure check (optional &mdash; leave blank to skip)</summary>
         <div class="row">
-          <div><label for="puck_S11t">S11t (fiber tension)</label><input type="number" id="puck_S11t" step="any" min="0"></div>
-          <div><label for="puck_S11c">S11c (fiber compression)</label><input type="number" id="puck_S11c" step="any" min="0"></div>
-          <div><label for="puck_S22t">S22t (transverse tension)</label><input type="number" id="puck_S22t" step="any" min="0"></div>
+          <div><label for="puck_S11t">S11t (fiber tension)</label><input type="number" id="puck_S11t" step="any" min="0" value="1996"></div>
+          <div><label for="puck_S11c">S11c (fiber compression)</label><input type="number" id="puck_S11c" step="any" min="0" value="1398"></div>
+          <div><label for="puck_S22t">S22t (transverse tension)</label><input type="number" id="puck_S22t" step="any" min="0" value="64"></div>
         </div>
         <div class="row" style="margin-top:8px;">
-          <div><label for="puck_S22c">S22c (transverse compression)</label><input type="number" id="puck_S22c" step="any" min="0"></div>
-          <div><label for="puck_S21s">S21s (in-plane shear)</label><input type="number" id="puck_S21s" step="any" min="0"></div>
-          <div><label for="puck_p21p">p21&#43; (Mode A slope)</label><input type="number" id="puck_p21p" step="any" min="0" placeholder="typ. 0.30"></div>
+          <div><label for="puck_S22c">S22c (transverse compression)</label><input type="number" id="puck_S22c" step="any" min="0" value="268"></div>
+          <div><label for="puck_S21s">S21s (in-plane shear)</label><input type="number" id="puck_S21s" step="any" min="0" value="92"></div>
+          <div><label for="puck_p21p">p21&#43; (Mode A slope)</label><input type="number" id="puck_p21p" step="any" min="0" value="0.30"></div>
         </div>
         <div class="row" style="margin-top:8px;">
           <div><label for="puck_p21m">p21&minus; (Mode B slope, optional)</label><input type="number" id="puck_p21m" step="any" min="0" placeholder="= p21+"></div>
         </div>
-        <div class="hint">All five strengths in the same stress unit as E/G above (e.g. MPa). Fill in all five strengths and p21+ to run the check; leave any strength blank to skip it. Reads S11/S22/S12 per ply from the same solve&nbsp;&mdash; no extra CalculiX run.</div>
+        <div class="hint">Defaults are published AS4/8552 room-temp-dry values (NCAMP qualification database) &mdash; not verified against this exact E1/E2/G12 batch above, so replace them with your own datasheet/test values if precision matters. All five strengths in the same stress unit as E/G above (e.g. MPa). Fill in all five strengths and p21+ to run the check; leave any strength blank to skip it. Reads S11/S22/S12 per ply from the same solve&nbsp;&mdash; no extra CalculiX run.</div>
       </details>
     </section>
 
