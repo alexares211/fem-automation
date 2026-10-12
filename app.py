@@ -8,6 +8,7 @@ from ccx_runner import run_ccx_blocking
 from dat_parser import read_reaction_force, DatParseError
 from step_mesher import structured_grid, StepMeshError
 from inp_writer import material_block, section_block, full_inp, LAGER_ALL, ELSET_NAME, InpWriteError
+from inp_import import inspect_inp, splice_layup, InpImportError
 from puck import PuckStrength, PuckInputError, evaluate_laminate
 from surrogate import (
     make_ccx_evaluator, bayesian_optimise, genetic_search_then_verify, SurrogateError,
@@ -63,6 +64,35 @@ def process_step():
     return jsonify({"ok": True, "source_path": step_path, **result})
 
 
+INP_UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+
+
+@app.route("/import_inp", methods=["POST"])
+def import_inp():
+    """Accept a PrePoMax-exported .inp (run once with no material, so ccx
+    errors out on the undefined material -- expected). Saves it and returns
+    what the UI needs to let the user pick the composite Elset and the
+    reaction-force Nset: every Nset/Elset found, plus whichever Elset the
+    (now-stripped) incomplete Shell/Solid section card already pointed at,
+    as a default guess.
+    """
+    uploaded = request.files.get("inp_file")
+    if uploaded is None:
+        return jsonify({"ok": False, "error": "Drop the .inp file PrePoMax produced."})
+    os.makedirs(INP_UPLOAD_DIR, exist_ok=True)
+    path = os.path.join(INP_UPLOAD_DIR, os.path.basename(uploaded.filename or "import.inp"))
+    uploaded.save(path)
+    try:
+        with open(path, "r", errors="ignore") as f:
+            text = f.read()
+        info = inspect_inp(text)
+    except InpImportError as e:
+        return jsonify({"ok": False, "error": str(e)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": "Could not read the .inp: " + str(e)})
+    return jsonify({"ok": True, "import_inp_path": path, **info})
+
+
 @app.route("/material_block", methods=["POST"])
 def material_block_route():
     """Format the material inputs into *Material / *Elastic keyword text (preview)."""
@@ -92,13 +122,38 @@ def section_block_route():
 @app.route("/inp_preview", methods=["POST"])
 def inp_preview():
     """Assemble the complete .inp from the on-page model (mesh + material +
-    layup + Festlager supports) and return it as text."""
+    layup + Festlager supports, OR an imported PrePoMax .inp + layup) and
+    return it as text."""
+    d = request.get_json(silent=True) or {}
+    import_inp_path = (d.get("import_inp_path") or "").strip()
+
+    try:
+        angles = _parse_angles(d.get("layup"))
+    except InpWriteError as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+    if import_inp_path:
+        if not os.path.isfile(import_inp_path):
+            return jsonify({"ok": False, "error": "Imported .inp file not found -- upload it again."})
+        import_elset = (d.get("import_elset") or "").strip()
+        if not import_elset:
+            return jsonify({"ok": False, "error": "Pick the element set the composite layup applies to."})
+        with open(import_inp_path, "r", errors="ignore") as f:
+            import_inp_text = f.read()
+        try:
+            text = splice_layup(
+                import_inp_text, import_elset, d.get("material_name"), d.get("constants"),
+                angles, d.get("thickness"), bool(d.get("symmetric")),
+                rf_nset_name=(d.get("import_rf_nset") or "").strip() or None,
+            )
+        except (InpWriteError, InpImportError) as e:
+            return jsonify({"ok": False, "error": str(e)})
+        return jsonify({"ok": True, "inp": text, "num_nodes": "--", "num_elements": "--"})
+
     step_path, spacing = _step_source()
     if not step_path:
         return jsonify({"ok": False, "error": "Process a STEP file first."})
-    d = request.get_json(silent=True) or {}
     try:
-        angles = _parse_angles(d.get("layup"))
         with GMSH_LOCK:
             m = structured_grid(step_path, spacing=spacing)
         text = full_inp(
@@ -209,6 +264,7 @@ def bo_start():
     output_folder = (data.get("output_folder") or "").strip()
     ccx_exe = (data.get("ccx_exe") or "").strip() or DEFAULT_CCX_EXE
     source_path = (data.get("source_path") or "").strip().strip('"')
+    import_inp_path = (data.get("import_inp_path") or "").strip()
     method = (data.get("method") or "bayesian").strip().lower()
     if method not in ("bayesian", "genetic"):
         return jsonify({"ok": False, "error": "method must be 'bayesian' or 'genetic'."})
@@ -241,36 +297,61 @@ def bo_start():
 
     if not output_folder:
         return jsonify({"ok": False, "error": "Please provide an output folder for the search."})
-    if not source_path or not os.path.isfile(source_path):
-        return jsonify({"ok": False, "error": "Process a STEP file first (no meshed geometry)."})
-    lagers = data.get("lagers") or []
-    loads = data.get("loads") or []
-    if not lagers:
-        return jsonify({"ok": False, "error": "Place at least one Festlager on the model first."})
 
-    try:
-        with GMSH_LOCK:
-            grid = structured_grid(source_path, spacing=data.get("spacing", "1"))
-        full_inp(
-            grid["nodes"], grid["elements"], grid["element_type"],
-            data.get("material_name"), data.get("constants"),
-            [0.0] * n_plies, data.get("thickness"),
-            lagers, bool(data.get("symmetric")), "auto", loads,
-        )
-    except (StepMeshError, InpWriteError) as e:
-        return jsonify({"ok": False, "error": str(e)})
+    if import_inp_path:
+        if not os.path.isfile(import_inp_path):
+            return jsonify({"ok": False, "error": "Imported .inp file not found -- upload it again."})
+        import_elset = (data.get("import_elset") or "").strip()
+        if not import_elset:
+            return jsonify({"ok": False, "error": "Pick the element set the composite layup applies to."})
+        import_rf_nset = (data.get("import_rf_nset") or "").strip() or None
+        with open(import_inp_path, "r", errors="ignore") as f:
+            import_inp_text = f.read()
+        try:
+            splice_layup(
+                import_inp_text, import_elset, data.get("material_name"), data.get("constants"),
+                [0.0] * n_plies, data.get("thickness"), bool(data.get("symmetric")),
+                rf_nset_name=import_rf_nset,
+            )
+        except (InpWriteError, InpImportError) as e:
+            return jsonify({"ok": False, "error": str(e)})
+        model = {
+            "import_inp_text": import_inp_text, "import_elset": import_elset,
+            "import_rf_nset": import_rf_nset,
+            "material_name": data.get("material_name"), "constants": data.get("constants"),
+            "thickness": data.get("thickness"), "symmetric": bool(data.get("symmetric")),
+        }
+    else:
+        if not source_path or not os.path.isfile(source_path):
+            return jsonify({"ok": False, "error": "Process a STEP file first (no meshed geometry)."})
+        lagers = data.get("lagers") or []
+        loads = data.get("loads") or []
+        if not lagers:
+            return jsonify({"ok": False, "error": "Place at least one Festlager on the model first."})
 
-    model = {
-        "nodes": grid["nodes"],
-        "elements": grid["elements"],
-        "element_type": grid["element_type"],
-        "material_name": data.get("material_name"),
-        "constants": data.get("constants"),
-        "thickness": data.get("thickness"),
-        "symmetric": bool(data.get("symmetric")),
-        "lagers": lagers,
-        "loads": loads,
-    }
+        try:
+            with GMSH_LOCK:
+                grid = structured_grid(source_path, spacing=data.get("spacing", "1"))
+            full_inp(
+                grid["nodes"], grid["elements"], grid["element_type"],
+                data.get("material_name"), data.get("constants"),
+                [0.0] * n_plies, data.get("thickness"),
+                lagers, bool(data.get("symmetric")), "auto", loads,
+            )
+        except (StepMeshError, InpWriteError) as e:
+            return jsonify({"ok": False, "error": str(e)})
+
+        model = {
+            "nodes": grid["nodes"],
+            "elements": grid["elements"],
+            "element_type": grid["element_type"],
+            "material_name": data.get("material_name"),
+            "constants": data.get("constants"),
+            "thickness": data.get("thickness"),
+            "symmetric": bool(data.get("symmetric")),
+            "lagers": lagers,
+            "loads": loads,
+        }
 
     # planned real-solve count, known up front: bayesian is init + every EI
     # step; genetic is init (real solves used to fit the GP) + the top_k
@@ -332,23 +413,42 @@ def stop(job_id):
 
 def run_simulate(job_id, model, angles, output_folder, ccx_exe, puck_strength=None):
     """Assemble one full .inp with the given layup, solve it, write the result
-    files into output_folder, read the reaction force at each Lager, and --
-    if puck_strength was given -- also run the Puck failure check on every
+    files into output_folder, read the reaction force, and -- if
+    puck_strength was given -- also run the Puck failure check on every
     ply's stress from the same solve (one ccx run covers both; the .inp
-    already requests per-ply stress output unconditionally, see
-    inp_writer.full_inp)."""
+    already requests per-ply stress output unconditionally).
+
+    model is either the STEP-drop shape (nodes/elements/.../lagers/loads,
+    built from this app's own gmsh pipeline -> inp_writer.full_inp) or the
+    imported-PrePoMax-.inp shape (import_inp_text/import_elset/
+    import_rf_nset -> inp_import.splice_layup). Reaction force is reported
+    per named Lager in the first case (rf_by_lager) and as one summed/maxed
+    total for the chosen Nset in the second (rf_total), since an imported
+    .inp has no "Lager index" concept of its own.
+    """
     with JOBS_LOCK:
         job = JOBS[job_id]
-    lager_node = {int(l["node"]): int(l["index"]) for l in model["lagers"]}
+    is_import = bool(model.get("import_inp_text"))
+    lager_node = {} if is_import else {int(l["node"]): int(l["index"]) for l in model["lagers"]}
+    elset_for_puck = model.get("import_elset") or ELSET_NAME
+    rf_nset = model.get("import_rf_nset") if is_import else LAGER_ALL
     try:
         os.makedirs(output_folder, exist_ok=True)
         inp_path = os.path.join(output_folder, "model.inp")
         with open(inp_path, "w") as f:
-            f.write(full_inp(
-                model["nodes"], model["elements"], model["element_type"],
-                model["material_name"], model["constants"], angles, model["thickness"],
-                model["lagers"], model["symmetric"], "auto", model["loads"],
-            ))
+            if is_import:
+                f.write(splice_layup(
+                    model["import_inp_text"], model.get("import_elset"),
+                    model["material_name"], model["constants"], angles, model["thickness"],
+                    model["symmetric"], rf_nset_name=model.get("import_rf_nset"),
+                    nlgeom="auto", loads=None,
+                ))
+            else:
+                f.write(full_inp(
+                    model["nodes"], model["elements"], model["element_type"],
+                    model["material_name"], model["constants"], angles, model["thickness"],
+                    model["lagers"], model["symmetric"], "auto", model["loads"],
+                ))
         job["inp_path"] = inp_path
 
         run_result = run_ccx_blocking(inp_path, ccx_exe, cancel_event=job["cancel_event"])
@@ -363,19 +463,26 @@ def run_simulate(job_id, model, angles, output_folder, ccx_exe, puck_strength=No
             return
 
         dat_path = os.path.splitext(inp_path)[0] + ".dat"
-        try:
-            rf = read_reaction_force(dat_path, LAGER_ALL)
-            job["rf_by_lager"] = {
-                str(lager_node[int(nid)]): [fx, fy, fz]   # signed reaction force X, Y, Z
-                for nid, (fx, fy, fz) in rf["per_node"].items() if int(nid) in lager_node
-            }
-        except DatParseError as e:
-            job["error"] = "Could not read reaction force: " + str(e)
-            return
+        if rf_nset:
+            try:
+                rf = read_reaction_force(dat_path, rf_nset)
+                if is_import:
+                    job["rf_total"] = {
+                        "nset": rf_nset, "fx": rf["sum_fx"], "fy": rf["sum_fy"],
+                        "fz": rf["sum_fz"], "magnitude": rf["magnitude"],
+                    }
+                else:
+                    job["rf_by_lager"] = {
+                        str(lager_node[int(nid)]): [fx, fy, fz]   # signed reaction force X, Y, Z
+                        for nid, (fx, fy, fz) in rf["per_node"].items() if int(nid) in lager_node
+                    }
+            except DatParseError as e:
+                job["error"] = "Could not read reaction force: " + str(e)
+                return
 
         if puck_strength is not None:
             try:
-                job["puck"] = evaluate_laminate(dat_path, ELSET_NAME, puck_strength)
+                job["puck"] = evaluate_laminate(dat_path, elset_for_puck, puck_strength)
             except DatParseError as e:
                 job["error"] = "Could not run Puck check: " + str(e)
     except Exception as e:
@@ -389,40 +496,69 @@ def simulate_start():
     data = request.get_json() or {}
     output_folder = (data.get("output_folder") or "").strip()
     ccx_exe = (data.get("ccx_exe") or "").strip() or DEFAULT_CCX_EXE
+    import_inp_path = (data.get("import_inp_path") or "").strip()
     source_path = (data.get("source_path") or "").strip().strip('"')
     lagers = data.get("lagers") or []
     loads = data.get("loads") or []
 
     if not output_folder:
         return jsonify({"ok": False, "error": "Enter an output folder."})
-    if not source_path or not os.path.isfile(source_path):
-        return jsonify({"ok": False, "error": "Process a STEP file first (no meshed geometry)."})
-    if not lagers:
-        return jsonify({"ok": False, "error": "Place at least one Festlager on the model first."})
 
     try:
         angles = _parse_angles(data.get("layup"))
         puck_strength = _puck_strength_from_dict(data.get("puck_strength"))
-        with GMSH_LOCK:
-            grid = structured_grid(source_path, spacing=data.get("spacing", "1"))
-        full_inp(
-            grid["nodes"], grid["elements"], grid["element_type"],
-            data.get("material_name"), data.get("constants"), angles, data.get("thickness"),
-            lagers, bool(data.get("symmetric")), "auto", loads,
-        )
-    except (StepMeshError, InpWriteError, PuckInputError) as e:
+    except (InpWriteError, PuckInputError) as e:
         return jsonify({"ok": False, "error": str(e)})
 
-    model = {
-        "nodes": grid["nodes"], "elements": grid["elements"], "element_type": grid["element_type"],
-        "material_name": data.get("material_name"), "constants": data.get("constants"),
-        "thickness": data.get("thickness"), "symmetric": bool(data.get("symmetric")),
-        "lagers": lagers, "loads": loads,
-    }
+    if import_inp_path:
+        if not os.path.isfile(import_inp_path):
+            return jsonify({"ok": False, "error": "Imported .inp file not found -- upload it again."})
+        import_elset = (data.get("import_elset") or "").strip()
+        if not import_elset:
+            return jsonify({"ok": False, "error": "Pick the element set the composite layup applies to."})
+        import_rf_nset = (data.get("import_rf_nset") or "").strip() or None
+        with open(import_inp_path, "r", errors="ignore") as f:
+            import_inp_text = f.read()
+        try:
+            splice_layup(
+                import_inp_text, import_elset, data.get("material_name"), data.get("constants"),
+                angles, data.get("thickness"), bool(data.get("symmetric")),
+                rf_nset_name=import_rf_nset,
+            )
+        except (InpWriteError, InpImportError) as e:
+            return jsonify({"ok": False, "error": str(e)})
+        model = {
+            "import_inp_text": import_inp_text, "import_elset": import_elset,
+            "import_rf_nset": import_rf_nset,
+            "material_name": data.get("material_name"), "constants": data.get("constants"),
+            "thickness": data.get("thickness"), "symmetric": bool(data.get("symmetric")),
+        }
+    else:
+        if not source_path or not os.path.isfile(source_path):
+            return jsonify({"ok": False, "error": "Process a STEP file first (no meshed geometry)."})
+        if not lagers:
+            return jsonify({"ok": False, "error": "Place at least one Festlager on the model first."})
+        try:
+            with GMSH_LOCK:
+                grid = structured_grid(source_path, spacing=data.get("spacing", "1"))
+            full_inp(
+                grid["nodes"], grid["elements"], grid["element_type"],
+                data.get("material_name"), data.get("constants"), angles, data.get("thickness"),
+                lagers, bool(data.get("symmetric")), "auto", loads,
+            )
+        except (StepMeshError, InpWriteError) as e:
+            return jsonify({"ok": False, "error": str(e)})
+        model = {
+            "nodes": grid["nodes"], "elements": grid["elements"], "element_type": grid["element_type"],
+            "material_name": data.get("material_name"), "constants": data.get("constants"),
+            "thickness": data.get("thickness"), "symmetric": bool(data.get("symmetric")),
+            "lagers": lagers, "loads": loads,
+        }
+
     job_id = uuid.uuid4().hex
     job = {
         "done": False, "cancel_event": threading.Event(), "log_tail": "",
-        "error": None, "converged": False, "rf_by_lager": {}, "inp_path": None,
+        "error": None, "converged": False, "rf_by_lager": {}, "rf_total": None, "inp_path": None,
         "output_folder": output_folder, "puck": None,
     }
     with JOBS_LOCK:
@@ -448,6 +584,7 @@ def simulate_status(job_id):
         "error": job["error"],
         "log_tail": job["log_tail"],
         "rf_by_lager": job.get("rf_by_lager", {}),
+        "rf_total": job.get("rf_total"),
         "output_folder": job.get("output_folder", ""),
         "puck": job.get("puck"),
     })

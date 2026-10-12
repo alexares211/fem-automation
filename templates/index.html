@@ -77,10 +77,10 @@
     .btn-row button { flex: 1 1 0; min-width: 140px; max-width: 210px; margin-top: 12px; }
     .btn-run { min-width: 260px; }
 
-    #stepDrop { border: 1.5px dashed var(--border-2); border-radius: 10px; padding: 24px;
+    #stepDrop, #inpDrop { border: 1.5px dashed var(--border-2); border-radius: 10px; padding: 24px;
       text-align: center; color: var(--text); font-size: 15px; cursor: pointer;
       background: var(--panel-2); transition: border-color .12s, color .12s; }
-    #stepDrop:hover { border-color: var(--accent); color: var(--text); }
+    #stepDrop:hover, #inpDrop:hover { border-color: var(--accent); color: var(--text); }
 
     #stepViewport { flex: 1; height: 460px; border: 1px solid var(--border);
       border-radius: 10px; background: var(--inset); position: relative; overflow: hidden; }
@@ -240,6 +240,23 @@
 
       <div id="lagerList" style="margin-top:12px;"></div>
       <div id="loadList" style="margin-top:10px;"></div>
+
+      <div class="hint" style="margin-top:18px;">&mdash; or, if geometry, mesh, supports and loads were already built in PrePoMax &mdash;</div>
+      <div id="inpDrop" style="margin-top:8px;">
+        Drop the PrePoMax <strong>.inp</strong> (run once with no material assigned &mdash; it's expected to error on that) &mdash; or click
+        <input type="file" id="inpFile" accept=".inp" style="display:none;">
+      </div>
+      <div id="inpMsg" class="progress-line"></div>
+      <div id="inpPickers" class="row" style="display:none; margin-top:12px;">
+        <div>
+          <label for="inpElsetPick">Element set for composite layup</label>
+          <select id="inpElsetPick"></select>
+        </div>
+        <div>
+          <label for="inpRfNsetPick">Node set for reaction force (optional)</label>
+          <select id="inpRfNsetPick"></select>
+        </div>
+      </div>
     </section>
 
     <section class="panel" id="materialSection">
@@ -882,9 +899,14 @@
   }
 
   // ---- expose the on-page model for the .inp preview and the optimization search ----
+  // Two mutually exclusive sources for geometry/mesh/supports/loads: this
+  // STEP-drop + gmsh pipeline (meshSource/lagers/loads, below), or an
+  // imported PrePoMax .inp (window.femImportState, set by the separate
+  // "import .inp" script block). Whichever was actually used last wins --
+  // an import overrides the STEP fields so the two paths can't silently mix.
   window.femCollectModel = function () {
     const v = id => { const el = document.getElementById(id); return el ? el.value : ""; };
-    return {
+    const base = {
       source_path: meshSource,
       path: meshSource,
       spacing: v("stepSpacing"),
@@ -899,12 +921,21 @@
       lagers: lagers.map(l => ({ index: l.index, node: l.node, type: l.type })),
       loads: loads.map(l => ({ index: l.index, node: l.node, type: l.type, dir: l.dir, mag: l.mag })),
     };
+    const imp = window.femImportState;
+    if (imp && imp.path) {
+      base.import_inp_path = imp.path;
+      base.import_elset = imp.elset;
+      base.import_rf_nset = imp.rfNset || "";
+    }
+    return base;
   };
 
   // ---- full .inp preview ----
   fullInpBtn.addEventListener("click", async () => {
-    if (!meshSource) { fullInpMsg.textContent = "Process a STEP file first."; return; }
-    if (!lagers.length) { fullInpMsg.textContent = "Place at least one Festlager first."; return; }
+    const importing = !!(window.femImportState && window.femImportState.path);
+    if (!importing && !meshSource) { fullInpMsg.textContent = "Process a STEP file first."; return; }
+    if (!importing && !lagers.length) { fullInpMsg.textContent = "Place at least one Festlager first."; return; }
+    if (importing && !window.femImportState.elset) { fullInpMsg.textContent = "Pick the element set for the composite layup."; return; }
     const thk = (document.getElementById("layupThk") || {}).value;
     if (!String(thk).trim() || !(Number(thk) > 0)) { fullInpMsg.textContent = "Enter the ply thickness in the Layup section first."; return; }
     const m = window.femCollectModel();
@@ -923,6 +954,79 @@
       fullInpMsg.innerHTML = `<span class="row-error">${String(err)}</span>`;
     }
   });
+})();
+</script>
+
+<!-- ===== Import a PrePoMax .inp (alternative to the STEP-drop pipeline above) ===== -->
+<script>
+(function () {
+  const dz = document.getElementById("inpDrop");
+  if (!dz) return;
+  const fileInput = document.getElementById("inpFile");
+  const msg = document.getElementById("inpMsg");
+  const pickers = document.getElementById("inpPickers");
+  const elsetPick = document.getElementById("inpElsetPick");
+  const rfNsetPick = document.getElementById("inpRfNsetPick");
+
+  window.femImportState = { path: null, elset: null, rfNset: null };
+
+  let pickedFile = null;
+  dz.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files.length) { pickedFile = fileInput.files[0]; upload(); }
+  });
+  ["dragover", "dragenter"].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault(); dz.style.borderColor = "var(--accent)";
+  }));
+  ["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, e => {
+    e.preventDefault(); dz.style.borderColor = "";
+  }));
+  dz.addEventListener("drop", e => {
+    if (e.dataTransfer.files.length) { pickedFile = e.dataTransfer.files[0]; upload(); }
+  });
+
+  function fillPicker(sel, names, selected) {
+    sel.innerHTML = names.map(n =>
+      `<option value="${escapeHtml(n)}"${n === selected ? " selected" : ""}>${escapeHtml(n)}</option>`
+    ).join("");
+  }
+
+  async function upload() {
+    if (!pickedFile) return;
+    dz.innerHTML = `Uploading <strong>${escapeHtml(pickedFile.name)}</strong>…`;
+    msg.textContent = "";
+    pickers.style.display = "none";
+    window.femImportState = { path: null, elset: null, rfNset: null };
+    try {
+      const fd = new FormData();
+      fd.append("inp_file", pickedFile);
+      const res = await fetch("/import_inp", { method: "POST", body: fd });
+      const data = await res.json();
+      dz.innerHTML = `Selected: <strong>${escapeHtml(pickedFile.name)}</strong> &nbsp;(click to change)`;
+      dz.appendChild(fileInput);
+      if (!data.ok) { msg.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`; return; }
+      if (!data.elsets.length) {
+        msg.innerHTML = `<span class="row-error">No element sets found in this .inp -- is it a complete PrePoMax export?</span>`;
+        return;
+      }
+      fillPicker(elsetPick, data.elsets, data.suggested_elset || data.elsets[0]);
+      fillPicker(rfNsetPick, ["(skip)", ...data.nsets], "(skip)");
+      pickers.style.display = "flex";
+      const applyState = () => {
+        window.femImportState = {
+          path: data.import_inp_path,
+          elset: elsetPick.value,
+          rfNset: rfNsetPick.value === "(skip)" ? null : rfNsetPick.value,
+        };
+      };
+      elsetPick.addEventListener("change", applyState);
+      rfNsetPick.addEventListener("change", applyState);
+      applyState();
+      msg.textContent = `${data.nsets.length} node set(s), ${data.elsets.length} element set(s) found.`;
+    } catch (err) {
+      msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
+    }
+  }
 })();
 </script>
 
@@ -1013,8 +1117,13 @@
   btn.addEventListener("click", async () => {
     if (!window.femCollectModel) return;
     const m = window.femCollectModel();
-    if (!m.source_path) { msg.textContent = "Process a STEP file first."; return; }
-    if (!m.lagers.length) { msg.textContent = "Place at least one Festlager first."; return; }
+    if (!m.import_inp_path) {
+      if (!m.source_path) { msg.textContent = "Process a STEP file first."; return; }
+      if (!m.lagers.length) { msg.textContent = "Place at least one Festlager first."; return; }
+    } else if (!m.import_elset) {
+      msg.textContent = "Pick the element set for the composite layup.";
+      return;
+    }
     const thk = (document.getElementById("layupThk") || {}).value;
     if (!String(thk).trim() || !(Number(thk) > 0)) { msg.textContent = "Enter the ply thickness in the Layup section first."; return; }
     const layup = ((document.getElementById("layupAngles") || {}).value || "").trim();
@@ -1299,12 +1408,17 @@
     tableBox.innerHTML = ""; summaryBox.innerHTML = ""; progress.textContent = ""; liveLog.textContent = "";
 
     const m = window.femCollectModel ? window.femCollectModel() : {};
-    if (!m.source_path) {
-      progress.innerHTML = `<span class="row-error">Process a STEP file first (no meshed model).</span>`;
-      return;
-    }
-    if (!m.lagers || !m.lagers.length) {
-      progress.innerHTML = `<span class="row-error">Drop at least one Festlager on the model first.</span>`;
+    if (!m.import_inp_path) {
+      if (!m.source_path) {
+        progress.innerHTML = `<span class="row-error">Process a STEP file first (no meshed model).</span>`;
+        return;
+      }
+      if (!m.lagers || !m.lagers.length) {
+        progress.innerHTML = `<span class="row-error">Drop at least one Festlager on the model first.</span>`;
+        return;
+      }
+    } else if (!m.import_elset) {
+      progress.innerHTML = `<span class="row-error">Pick the element set for the composite layup.</span>`;
       return;
     }
     const thickness = document.getElementById("bo_thickness").value;

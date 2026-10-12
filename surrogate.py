@@ -121,11 +121,21 @@ def make_ccx_evaluator(model, ccx_exe, output_folder, reduce="sum", cancel_event
     from ccx_runner import run_ccx_blocking
     from dat_parser import read_reaction_force, DatParseError
     from inp_writer import full_inp, InpWriteError, LAGER_ALL
+    from inp_import import splice_layup, InpImportError
 
     if reduce not in ("sum", "max"):
         raise SurrogateError("reduce must be 'sum' or 'max'.")
     os.makedirs(output_folder, exist_ok=True)
     call_count = [0]
+
+    # Two ways to get a base geometry/BC/load deck: the app's own STEP-drop
+    # + gmsh pipeline (full_inp, every field below required), or an imported
+    # PrePoMax .inp with the composite layup spliced in fresh for each
+    # candidate angle sequence (model["import_inp_text"] present). Either
+    # way only the ply angles change between evaluations -- geometry, BCs
+    # and loads are fixed for the whole search.
+    is_import = bool(model.get("import_inp_text"))
+    rf_nset = model.get("import_rf_nset") or LAGER_ALL
 
     def f(angles):
         if cancel_event is not None and cancel_event.is_set():
@@ -136,13 +146,21 @@ def make_ccx_evaluator(model, ccx_exe, output_folder, reduce="sum", cancel_event
         )
         inp_path = os.path.join(output_folder, f"bo_{call_count[0]:04d}_{suffix}deg.inp")
         try:
-            text = full_inp(
-                model["nodes"], model["elements"], model["element_type"],
-                model["material_name"], model["constants"],
-                list(angles), model["thickness"], model["lagers"],
-                model["symmetric"], "auto", model["loads"],
-            )
-        except InpWriteError as e:
+            if is_import:
+                text = splice_layup(
+                    model["import_inp_text"], model.get("import_elset"),
+                    model["material_name"], model["constants"],
+                    list(angles), model["thickness"], model["symmetric"],
+                    rf_nset_name=model.get("import_rf_nset"), nlgeom="auto", loads=None,
+                )
+            else:
+                text = full_inp(
+                    model["nodes"], model["elements"], model["element_type"],
+                    model["material_name"], model["constants"],
+                    list(angles), model["thickness"], model["lagers"],
+                    model["symmetric"], "auto", model["loads"],
+                )
+        except (InpWriteError, InpImportError) as e:
             raise SurrogateError(f"Could not write .inp for angles={angles}: {e}")
         with open(inp_path, "w") as fh:
             fh.write(text)
@@ -155,7 +173,7 @@ def make_ccx_evaluator(model, ccx_exe, output_folder, reduce="sum", cancel_event
 
         dat_path = os.path.splitext(inp_path)[0] + ".dat"
         try:
-            rf = read_reaction_force(dat_path, LAGER_ALL)
+            rf = read_reaction_force(dat_path, rf_nset)
         except DatParseError as e:
             raise SurrogateError(f"Could not read reaction force for angles={angles}: {e}")
         norms = [math.sqrt(fx ** 2 + fy ** 2 + fz ** 2) for fx, fy, fz in rf["per_node"].values()]
