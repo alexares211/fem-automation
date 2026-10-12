@@ -1036,16 +1036,22 @@
     logBox.style.display = "none";
     document.getElementById("simResults").innerHTML = "";
     document.getElementById("puckResults").innerHTML = "";
-    msg.textContent = "Starting CalculiX…";
+    msg.textContent = "";
+    showOverlay(true, "Starting CalculiX…");
     try {
       const res = await fetch("/simulate_start", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(m),
       });
       const data = await res.json();
-      if (!data.ok) { msg.innerHTML = `<span class="row-error">${data.error}</span>`; btn.disabled = false; return; }
+      if (!data.ok) {
+        showOverlay(false);
+        msg.innerHTML = `<span class="row-error">${data.error}</span>`; btn.disabled = false; return;
+      }
       jobId = data.job_id;
+      activeStopUrl = `/stop/${jobId}`;
       timer = setInterval(poll, 1500);
     } catch (err) {
+      showOverlay(false);
       msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
       btn.disabled = false;
     }
@@ -1055,11 +1061,19 @@
     try {
       const res = await fetch("/simulate_status/" + jobId);
       const data = await res.json();
-      if (!data.ok) { clearInterval(timer); btn.disabled = false; msg.innerHTML = `<span class="row-error">${data.error}</span>`; return; }
+      if (!data.ok) {
+        clearInterval(timer); btn.disabled = false; showOverlay(false);
+        msg.innerHTML = `<span class="row-error">${data.error}</span>`; return;
+      }
       if (data.log_tail) { logBox.textContent = data.log_tail; logBox.style.display = "block"; }
-      if (!data.done) { msg.textContent = "Running CalculiX…"; return; }
+      if (!data.done) {
+        showOverlay(true, "Running CalculiX…");
+        liveLog.textContent = data.log_tail || "";
+        return;
+      }
       clearInterval(timer);
       btn.disabled = false;
+      showOverlay(false);
       if (data.error) { msg.innerHTML = `<span class="row-error">${data.error}</span>`; return; }
       msg.textContent = (data.converged ? "Converged" : "Finished (check log)") +
         ` — result files in ${data.output_folder}`;
@@ -1068,6 +1082,7 @@
     } catch (err) {
       clearInterval(timer);
       btn.disabled = false;
+      showOverlay(false);
       msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
     }
   }
