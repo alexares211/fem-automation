@@ -151,7 +151,7 @@
   <body>
     <div class="masthead">
       <h1>FEM&nbsp;Automation</h1>
-      <span class="tag">STEP &rarr; CalculiX composite optimization</span>
+      <span class="tag">PrePoMax &rarr; composite stiffness optimization</span>
     </div>
 
     <div class="panel" id="runSettings" style="padding:16px 20px;">
@@ -161,7 +161,7 @@
       <div class="row">
         <div>
           <label for="run_output_folder">Output folder</label>
-          <input type="text" id="run_output_folder" placeholder="D:\runs\model1">
+          <input type="text" id="run_output_folder" value="{{ default_output_folder }}">
         </div>
         <div>
           <label for="run_ccx_exe">CalculiX .exe</label>
@@ -172,7 +172,9 @@
 
     <section class="panel" id="stepSection">
       <div class="sec-head"><span class="sec-num">01</span><h2 class="sec-title">Input File</h2></div>
-      <p class="sec-note">Build geometry, mesh, supports and loads in PrePoMax. Run it once with no material assigned (it's expected to error on that), then drop the resulting .inp here.</p>
+      <p class="sec-note">Define the mesh, supports and loads in PrePoMax and export a CalculiX .inp. The selected part receives the composite layup below; the imported boundary conditions and loads are retained.</p>
+      <button type="button" class="ghost" id="loadBeamBtn" style="margin:0 0 14px;">Load cantilever beam example</button>
+      <div class="hint" style="margin-bottom:12px;">Example: 100 &times; 10 mm shell beam, clamped at x = 0 and loaded in the y direction at its free end. Units: mm, N, MPa.</div>
 
       <div id="inpDrop">
         Drop the PrePoMax <strong>.inp</strong> &mdash; or click
@@ -215,7 +217,7 @@
       <div class="hint">MPa &middot; orthotropic engineering constants</div>
 
       <details class="advanced" id="puck_advanced" open>
-        <summary>Strength &mdash; for Puck failure check (optional &mdash; leave blank to skip)</summary>
+        <summary>Strength &mdash; required for stress optimization; optional Puck check</summary>
         <div class="row">
           <div><label for="puck_S11t">S11t (fiber tension)</label><input type="number" id="puck_S11t" step="any" min="0" value="1996"></div>
           <div><label for="puck_S11c">S11c (fiber compression)</label><input type="number" id="puck_S11c" step="any" min="0" value="1398"></div>
@@ -237,20 +239,21 @@
       <div class="sec-head"><span class="sec-num">03</span><h2 class="sec-title">Layup</h2></div>
 
       <label for="layupAngles">Ply angles &mdash; ply&nbsp;1 outward</label>
-      <input type="text" id="layupAngles" value="30/-30" placeholder="0/45/-45/90">
+      <input type="text" id="layupAngles" value="45/-45/90/0" placeholder="0/45/-45/90">
 
       <div class="row" style="margin-top:12px; align-items:flex-end;">
         <div style="max-width:170px;">
           <label for="layupThk">Ply thickness <span style="color:var(--warn);">*</span></label>
-          <input type="number" id="layupThk" step="any" min="0">
+          <input type="number" id="layupThk" step="any" min="0" value="0.25">
         </div>
         <label class="check" style="margin-bottom:9px;">
-          <input type="checkbox" id="layupSym"> Symmetric (mirror)
+          <input type="checkbox" id="layupSym" checked> Symmetric (mirror)
         </label>
       </div>
       <div class="hint">
         Example: <code>30/-30</code> mirrored about the mid-plane &rarr;
         <code>30 / -30 / -30 / 30</code>, i.e. <code>[30/-30]<sub>s</sub></code> (2 plies &rarr; 4).
+        Angles follow the selected planar shell mesh. 0&deg; follows projected global X (global Y if X is normal); the element normal defines the positive rotation.
       </div>
     </section>
 
@@ -284,50 +287,44 @@
 
     <section class="panel" id="optSection">
       <div class="sec-head"><span class="sec-num">06</span><h2 class="sec-title">Parameter Optimization</h2></div>
-      <p class="sec-note">Bayesian Optimization: scores each stacking sequence with a real CalculiX solve, fits a Gaussian Process surrogate on the results, and uses Expected Improvement to pick the next angle combination to try &mdash; instead of testing every combination.</p>
-
+      <p class="sec-note">Optimize ply orientations for maximum stiffness under the imported supports and loads. Ply count, ply thickness, and symmetry come from section 03 and stay fixed throughout the run.</p>
       <div class="row">
-        <div>
-          <label for="bo_num_plies">Plies (N)</label>
-          <input type="number" id="bo_num_plies" value="8" step="1" min="1">
-        </div>
-        <div>
-          <label for="bo_reduce">Score</label>
-          <select id="bo_reduce">
-            <option value="sum" selected>sum of Lager reaction forces</option>
-            <option value="max">max Lager reaction force</option>
+        <div><label for="orientationMethod">Stress-based method</label>
+          <select id="orientationMethod">
+            <option value="fully_stressed">Fully stressed design &mdash; orientation only</option>
+            <option value="equal_stress">Equal stress &mdash; balanced ply utilization</option>
           </select>
         </div>
-        <div>
-          <label for="bo_angle_step">Angle step (&deg;)</label>
-          <input type="number" id="bo_angle_step" value="" step="1" min="0" placeholder="continuous">
-        </div>
       </div>
-      <div class="row" style="margin-top:12px; align-items:flex-end;">
-        <div style="max-width:170px;">
-          <label for="bo_thickness">Ply thickness</label>
-          <input type="number" id="bo_thickness" step="any" min="0">
-        </div>
-        <label class="check" style="margin-bottom:9px;">
-          <input type="checkbox" id="bo_symmetric"> Symmetric (mirror)
-        </label>
+      <p class="hint" id="methodExplanation" aria-live="polite"></p>
+      <div class="row">
+        <div><label for="fixedPlyCount">Ply count &mdash; fixed</label><input id="fixedPlyCount" type="text" readonly></div>
+        <div><label for="fixedPlyThickness">Ply thickness &mdash; fixed (mm)</label><input id="fixedPlyThickness" type="text" readonly></div>
+        <div><label for="fixedTotalThickness">Total thickness (mm)</label><input id="fixedTotalThickness" type="text" readonly></div>
       </div>
-      <div class="hint">Uses the material from section&nbsp;02; ply thickness and symmetry are this section's own (not linked to section&nbsp;03). Each row is a real solve &mdash; expect seconds per row; stop any time and the best result so far is kept. Leave Angle step blank to search continuous angles; set it (e.g. 15) to restrict every candidate to that grid &mdash; 0&deg; and 180&deg; are the same physical ply, so a step that divides 180 evenly (15, 30, 45&hellip;) gives the cleanest grid.</div>
-
-      <details class="advanced" id="bo_advanced">
-        <summary>Advanced (auto-set from Plies)</summary>
-        <div class="row" id="bo_bayes_fields">
-          <div><label for="bo_n_init">Initial samples</label><input type="number" id="bo_n_init" value="8" step="1" min="1"></div>
-          <div><label for="bo_n_iter">EI iterations</label><input type="number" id="bo_n_iter" value="15" step="1" min="0"></div>
-          <div><label for="bo_xi">Exploration &xi;</label><input type="number" id="bo_xi" value="0.01" step="0.005" min="0"></div>
-        </div>
-      </details>
-
-      <div style="margin-top:16px;"><button type="button" class="btn-run" id="boBtn" style="margin-top:0;">Run optimization</button></div>
-
-      <div id="boProgress" class="progress-line"></div>
-      <div id="boSummary" class="table-wrap" style="margin-top:12px;"></div>
-      <div id="boTableBox" class="table-wrap"></div>
+      <div class="row">
+        <div><label for="optAngleStep">Angle resolution (&deg;)</label><input id="optAngleStep" type="number" value="1" min="0.25" max="45" step="0.25"></div>
+        <div><label for="optBudget">Maximum FEM evaluations</label><input id="optBudget" type="number" value="160" min="5" max="2000" step="1"></div>
+        <div><label for="optStressLimit">Utilization limit</label><input id="optStressLimit" type="number" value="1" min="0.01" max="1" step="0.05"></div>
+      </div>
+      <div id="equalStressSettings" hidden>
+        <label for="optEqualTolerance">Maximum variation between ply utilizations (CV)</label>
+        <input id="optEqualTolerance" type="number" value="0.10" min="0" max="2" step="0.01">
+        <div class="hint">0.10 means the standard deviation is at most 10% of the mean. Each ply uses its peak maximum-stress utilization across all integration points.</div>
+      </div>
+      <div class="hint">Force loading: minimize compliance C = 2U = F&middot;u. Prescribed displacement: maximize strain energy at the fixed displacement. One linear-elastic static step is supported. Strength allowables from section 02 are required.</div>
+      <label class="check"><input type="checkbox" id="optAutoOpen" checked> Open the optimized FEM results in PrePoMax when the run finishes</label>
+      <div class="btn-row">
+        <button type="button" id="orientationRun">Optimize orientations</button>
+        <button type="button" id="orientationStop" class="ghost" disabled>Stop and keep best</button>
+      </div>
+      <div id="orientationProgress" class="progress-line" role="status" aria-live="polite"></div>
+      <div id="orientationSummary" class="table-wrap"></div>
+      <canvas id="orientationChart" width="780" height="220" style="width:100%;margin-top:16px;display:none;" aria-label="Best feasible stiffness objective by FEM evaluation" role="img"></canvas>
+      <div id="orientationPlyResults" class="table-wrap"></div>
+      <div id="orientationFiles" class="btn-row"></div>
+      <details class="advanced"><summary>FEM evaluation history</summary><div id="orientationHistory" class="table-wrap"></div></details>
+      <p class="hint">These are orientation-only adaptations. Classical fully stressed sizing targets utilization = 1 by changing material sizing; that target may be unreachable with fixed thickness and ply count. Equal stress adds a balance constraint and can trade stiffness for more uniform utilization. The search reports a local result at the selected resolution and budget.</p>
     </section>
 
     <div class="overlay" id="overlay">
@@ -550,8 +547,8 @@
         };
         warnIncompatible();
       };
-      elsetPick.addEventListener("change", applyState);
-      rfNsetPick.addEventListener("change", applyState);
+      elsetPick.onchange = applyState;
+      rfNsetPick.onchange = applyState;
       applyState();
     } catch (err) {
       msg.innerHTML = `<span class="row-error">${String(err)}</span>`;
@@ -617,6 +614,8 @@
           symmetric: document.getElementById("layupSym").checked,
           thickness: document.getElementById("layupThk").value,
           material: matName ? matName.value : "",
+          import_inp_path: (window.femImportState || {}).path || "",
+          import_elset: (window.femImportState || {}).elset || "",
         }),
       });
       const data = await res.json();
@@ -802,185 +801,6 @@
 })();
 </script>
 
-<!-- ===== Parameter Optimization: data-driven / surrogate search (real CalculiX) ===== -->
-<script>
-(function () {
-  const btn = document.getElementById("boBtn");
-  if (!btn) return;
-  const progress = document.getElementById("boProgress");
-  const summaryBox = document.getElementById("boSummary");
-  const tableBox = document.getElementById("boTableBox");
-
-  // ---- auto-set the advanced (Initial samples / EI iterations / Exploration)
-  // fields from how many free angles the search actually has to explore, so
-  // nobody has to understand the algorithm just to run it. Stops overwriting
-  // a field once the user has edited it by hand -- the "just in case" escape
-  // hatch stays untouched. ----
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(v)));
-  const advancedIds = ["bo_n_init", "bo_n_iter", "bo_xi"];
-  let advancedTouched = false;
-  advancedIds.forEach(id => {
-    document.getElementById(id).addEventListener("input", () => { advancedTouched = true; });
-  });
-
-  function freePlyCount() {
-    const n = Math.max(1, parseInt(document.getElementById("bo_num_plies").value, 10) || 1);
-    const symmetric = !!(document.getElementById("bo_symmetric") || {}).checked;
-    return symmetric ? Math.ceil(n / 2) : n;
-  }
-
-  function applyAutoDefaults() {
-    if (advancedTouched) return;
-    const half = freePlyCount();
-    document.getElementById("bo_n_init").value = clamp(2 * half + 2, 6, 20);
-    document.getElementById("bo_n_iter").value = clamp(3 * half + 5, 10, 30);
-    document.getElementById("bo_xi").value = "0.01";
-  }
-  document.getElementById("bo_num_plies").addEventListener("input", applyAutoDefaults);
-  document.getElementById("bo_symmetric").addEventListener("change", applyAutoDefaults);
-  applyAutoDefaults();
-
-  const seqStr = (arr) => "[ " + arr.map(a => fmtNum(a, 1) + "°").join(" / ") + " ]";
-
-  let boJobId = null;
-  let boPollTimer = null;
-  let boHistoryLen = 0;
-  let boLastHistory = [];
-  let boScoreSort = null; // null (solve order) | "desc" (best first) | "asc" (worst first)
-
-  function renderHistory(history) {
-    boLastHistory = history;
-    const bestS = history.length ? Math.max(...history.map(h => h.S)) : null;
-    const numbered = history.map((h, i) => Object.assign({}, h, { _n: i + 1 }));
-    const rows = boScoreSort === "desc" ? [...numbered].sort((a, b) => b.S - a.S)
-      : boScoreSort === "asc" ? [...numbered].sort((a, b) => a.S - b.S)
-      : numbered;
-    const arrow = boScoreSort === "desc" ? " ▼" : boScoreSort === "asc" ? " ▲" : "";
-    const body = rows.map(h => {
-      const isBest = h.S === bestS;
-      return `<tr${isBest ? ' style="color:var(--ok);"' : ""}><td>${h._n}</td><td>${escapeHtml(h.source || "")}</td>` +
-        `<td>${escapeHtml(seqStr(h.angles))}</td><td>${fmtNum(h.S, 4)}</td></tr>`;
-    }).join("");
-    tableBox.innerHTML = `<table class="resultsTable"><thead><tr>` +
-      `<th>#</th><th>Source</th><th>Sequence</th>` +
-      `<th id="boScoreHeader" style="cursor:pointer;user-select:none;" title="Click to sort best/worst">Score${arrow}</th>` +
-      `</tr></thead><tbody>${body}</tbody></table>`;
-  }
-
-  // event delegation -- the header is recreated by innerHTML on every render,
-  // so this listens on the (stable) container instead of the <th> itself.
-  tableBox.addEventListener("click", (e) => {
-    if (!e.target.closest("#boScoreHeader")) return;
-    boScoreSort = boScoreSort === "desc" ? "asc" : "desc";
-    renderHistory(boLastHistory);
-  });
-
-  function renderResult(result) {
-    if (!result || result.best_angles === null) {
-      summaryBox.innerHTML = `<div class="hint">No result -- stopped before any evaluation finished.</div>`;
-      return;
-    }
-    summaryBox.innerHTML = `<table class="resultsTable"><tbody>
-        <tr><td>Best sequence</td><td><strong>${escapeHtml(seqStr(result.best_angles))}</strong></td></tr>
-        <tr><td>Best score</td><td><strong>${fmtNum(result.best_S, 4)}</strong></td></tr>
-        <tr><td>Real evaluations</td><td>${result.n_evaluations}</td></tr>
-      </tbody></table>`;
-  }
-
-  async function pollBo() {
-    const res = await fetch(`/bo_status/${boJobId}`);
-    const data = await res.json();
-    if (!data.ok) {
-      clearInterval(boPollTimer);
-      showOverlay(false);
-      btn.disabled = false;
-      progress.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`;
-      return;
-    }
-    if (data.history.length !== boHistoryLen) {
-      boHistoryLen = data.history.length;
-      renderHistory(data.history);
-    }
-    if (!data.done) {
-      showOverlay(true, "Running optimization…");
-      setOverlayProgress(data.history.length, data.total);
-      progress.textContent = data.total
-        ? `${data.history.length} / ${data.total} real solve(s) done`
-        : `${data.history.length} real solve(s) done`;
-      liveLog.textContent = "";
-    } else {
-      clearInterval(boPollTimer);
-      showOverlay(false);
-      btn.disabled = false;
-      if (data.fatal_error) {
-        progress.innerHTML = `<span class="row-error">Search aborted: ${escapeHtml(data.fatal_error)}</span>`;
-      } else {
-        const stoppedNote = data.result && data.result.stopped ? " (stopped early by user)" : "";
-        progress.textContent = `Done -- ${data.history.length} real solve(s) completed${stoppedNote}.`;
-        renderResult(data.result);
-      }
-    }
-  }
-
-  btn.addEventListener("click", async () => {
-    boHistoryLen = 0;
-    boLastHistory = []; boScoreSort = null;
-    tableBox.innerHTML = ""; summaryBox.innerHTML = ""; progress.textContent = ""; liveLog.textContent = "";
-
-    const m = window.femCollectModel ? window.femCollectModel() : {};
-    if (!m.import_inp_path) {
-      progress.innerHTML = `<span class="row-error">Import a PrePoMax .inp first.</span>`;
-      return;
-    }
-    if (!m.import_elset) {
-      progress.innerHTML = `<span class="row-error">Pick the element set for the composite layup.</span>`;
-      return;
-    }
-    const thickness = document.getElementById("bo_thickness").value;
-    if (!String(thickness).trim() || !(Number(thickness) > 0)) {
-      progress.innerHTML = `<span class="row-error">Enter the ply thickness above first.</span>`;
-      return;
-    }
-
-    const payload = Object.assign({}, m, {
-      output_folder: document.getElementById("run_output_folder").value,
-      ccx_exe: document.getElementById("run_ccx_exe").value,
-      num_plies: document.getElementById("bo_num_plies").value,
-      reduce: document.getElementById("bo_reduce").value,
-      angle_step: document.getElementById("bo_angle_step").value,
-      thickness: thickness,
-      symmetric: document.getElementById("bo_symmetric").checked,
-      method: "bayesian",
-      n_init: document.getElementById("bo_n_init").value,
-      n_iter: document.getElementById("bo_n_iter").value,
-      xi: document.getElementById("bo_xi").value,
-    });
-
-    btn.disabled = true;
-    showOverlay(true, "Starting search…");
-    try {
-      const res = await fetch("/bo_start", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        showOverlay(false);
-        btn.disabled = false;
-        progress.innerHTML = `<span class="row-error">${escapeHtml(data.error)}</span>`;
-        return;
-      }
-      boJobId = data.job_id;
-      activeStopUrl = `/stop/${boJobId}`;
-      boPollTimer = setInterval(pollBo, 1200);
-    } catch (err) {
-      showOverlay(false);
-      btn.disabled = false;
-      progress.innerHTML = `<span class="row-error">${escapeHtml(String(err))}</span>`;
-    }
-  });
-})();
-</script>
-
+<script src="{{ url_for('static', filename='orientation.js') }}"></script>
 </body>
 </html>

@@ -28,11 +28,16 @@ def angle_range(start, end, step):
     return values
 
 
-def orientation_vectors(angle_deg):
-    """a = fiber direction, b = a rotated +90 deg, both in the X-Z plane."""
+def orientation_vectors(angle_deg, reference_axes=None):
+    """Rotate in an explicit material plane; the legacy template defaults to XZ.
+
+    Imported shell models supply orthonormal tangent axes inferred from their
+    mesh, so an off-axis ply cannot collapse onto X when the shell is in XY.
+    """
     theta = math.radians(angle_deg)
-    a = (math.cos(theta), 0.0, math.sin(theta))
-    b = (-math.sin(theta), 0.0, math.cos(theta))
+    first, second = reference_axes or ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0))
+    a = tuple(math.cos(theta)*first[i] + math.sin(theta)*second[i] for i in range(3))
+    b = tuple(-math.sin(theta)*first[i] + math.cos(theta)*second[i] for i in range(3))
     return a, b
 
 

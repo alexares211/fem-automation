@@ -129,7 +129,7 @@ def _check_name(label, name):
     return name
 
 
-def section_block(material, angles, thickness, symmetric=False, elset=ELSET_NAME):
+def section_block(material, angles, thickness, symmetric=False, elset=ELSET_NAME, reference_axes=None):
     """Return one uniquely-named '*Orientation' per ply plus the
     '*Shell section, Elset=..., Composite' card and its ply lines
     (no trailing newline). Ply names are AutoPly1, AutoPly2, ... to match
@@ -154,7 +154,7 @@ def section_block(material, angles, thickness, symmetric=False, elset=ELSET_NAME
     orient_blocks, ply_lines = [], []
     for i, angle in enumerate(stack, start=1):
         name = f"AutoPly{i}"
-        a, b = orientation_vectors(float(angle))
+        a, b = orientation_vectors(float(angle), reference_axes=reference_axes)
         orient_blocks.append(
             f"*Orientation, Name={name}, System=Rectangular\n{format_vector_line(a, b)}"
         )

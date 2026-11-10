@@ -201,3 +201,42 @@ def read_ply_stresses(dat_path, elset_name):
 
     matches.sort(key=lambda t: t[0])
     return matches[-1][1]
+
+
+def read_displacements(dat_path, nset_name):
+    """Read final global displacements from *NODE PRINT (not the FRD mesh)."""
+    with open(dat_path, encoding="utf-8", errors="ignore") as stream:
+        text = stream.read()
+    header = re.compile(
+        r'displacements\s*\(vx,vy,vz\)\s*for\s*set\s*(\S+)\s*and\s*time\s*([0-9.eEdD+\-]+)',
+        re.I,
+    )
+    matches = []
+    for match in header.finditer(text):
+        if match[1].casefold() == nset_name.casefold():
+            rows = _parse_body_rows(text[match.end():])
+            if rows:
+                matches.append((float(match[2].replace('D', 'E')), rows))
+    if not matches:
+        raise DatParseError(f"No displacement output for node set {nset_name!r}.")
+    time, rows = max(matches, key=lambda item: item[0])
+    if not all(math.isfinite(x) for row in rows.values() for x in row):
+        raise DatParseError("Non-finite displacement in solver output.")
+    return {"time": time, "per_node": rows,
+            "maximum": max(math.sqrt(sum(x*x for x in row)) for row in rows.values())}
+
+
+def read_internal_energy(dat_path, elset_name):
+    """Integrated energy ELSE / TOTALS=ONLY, never energy density ENER."""
+    with open(dat_path, encoding="utf-8", errors="ignore") as stream:
+        text = stream.read()
+    header = re.compile(
+        r'total internal energy\s+for\s+set\s+(\S+)\s+and\s+time\s+([0-9.eEdD+\-]+)\s*\n\s*([-+0-9.eEdD]+)', re.I)
+    values = [(float(m[2].replace('D', 'E')), float(m[3].replace('D', 'E')))
+              for m in header.finditer(text) if m[1].casefold() == elset_name.casefold()]
+    if not values:
+        raise DatParseError(f"No total internal energy for element set {elset_name!r}.")
+    time, energy = max(values, key=lambda item: item[0])
+    if not math.isfinite(energy) or energy <= 0:
+        raise DatParseError("Internal energy must be finite and positive; check the load and supports.")
+    return {"time": time, "energy": energy}

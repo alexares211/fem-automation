@@ -30,6 +30,8 @@ def start_ccx(inp_path, ccx_exe):
         cwd=folder,
         stdout=log_file,
         stderr=subprocess.STDOUT,
+        env={**os.environ, "OMP_NUM_THREADS": os.environ.get("FEM_OMP_THREADS", "1")},
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
     )
 
     return {
@@ -41,7 +43,7 @@ def start_ccx(inp_path, ccx_exe):
     }
 
 
-def run_ccx_blocking(inp_path, ccx_exe, cancel_event=None, poll_interval=0.3):
+def run_ccx_blocking(inp_path, ccx_exe, cancel_event=None, poll_interval=0.3, timeout=600):
     """Run ccx and wait for it to finish, checking cancel_event periodically.
 
     Used wherever many solves run back to back in a background thread (a
@@ -53,6 +55,7 @@ def run_ccx_blocking(inp_path, ccx_exe, cancel_event=None, poll_interval=0.3):
     proc = state["proc"]
 
     stopped = False
+    started = time.monotonic()
     while True:
         returncode = proc.poll()
         if returncode is not None:
@@ -62,6 +65,11 @@ def run_ccx_blocking(inp_path, ccx_exe, cancel_event=None, poll_interval=0.3):
             proc.wait()
             stopped = True
             break
+        if timeout is not None and time.monotonic() - started > timeout:
+            proc.terminate()
+            proc.wait()
+            state["log_file"].close()
+            raise CCXRunError(f"CalculiX exceeded the {timeout:g} second time limit. See {state['log_path']}")
         time.sleep(poll_interval)
 
     if not state["log_file"].closed:
@@ -90,7 +98,7 @@ def evaluate_result(log_path, frd_path, returncode):
     return {
         "returncode": returncode,
         "has_error": "*ERROR" in text,
-        "converged": "Job finished" in text,
+        "converged": returncode == 0 and "Job finished" in text and "*ERROR" not in text,
         "frd_path": frd_path,
         "frd_exists": os.path.isfile(frd_path),
         "output_tail": "\n".join(text.strip().splitlines()[-30:]),

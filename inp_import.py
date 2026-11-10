@@ -32,6 +32,7 @@ see upgrade_s8_to_s8r() below, which fixes that without remeshing.
 """
 
 import re
+import math
 
 from inp_writer import InpWriteError, material_block, section_block, auto_nlgeom
 
@@ -204,8 +205,9 @@ def upgrade_s8_to_s8r(cards, elset_name):
     section 6.2.14, "Eight-node shell element (S8 and S8R)": identical node
     numbering/connectivity, the only difference is the solver's internal
     integration scheme -- full for S8, reduced for S8R) -- CalculiX's
-    Composite shell section just requires the reduced-integration label, so
-    this relabelling is lossless and needs no remesh. Returns a new cards
+    Composite shell section requires reduced integration. Connectivity is
+    retained, but changing the integration scheme can change stiffness and
+    stress and should be included in mesh validation. Returns a new cards
     list; the input is left untouched.
     """
     members = _resolve_elset_members(cards, elset_name) or set()
@@ -371,9 +373,65 @@ def inspect_inp(text):
     }
 
 
+def shell_reference_axes(cards, elset_name):
+    """Return tangent axes for a planar shell patch, including rotated planes.
+
+    The first axis is global X projected onto the patch (global Y if X is
+    normal). Positive angles follow the first element's oriented normal.
+    Nonplanar parts require a local orientation field and are rejected rather
+    than projecting incorrect global ply directions into each shell.
+    """
+    members = _resolve_elset_members(cards, elset_name) or set()
+    nodes, connectivity = {}, []
+    for card in cards:
+        for line in card["body"]:
+            if not line.strip() or line.lstrip().startswith("**"):
+                continue
+            fields = [field.strip() for field in line.split(",") if field.strip()]
+            if card["keyword"] == "NODE":
+                nodes[int(fields[0])] = tuple(float(value) for value in fields[1:4])
+            elif (card["keyword"] == "ELEMENT"
+                  and _keyword_params(card["header"]).get("TYPE", "").upper() in {"S8", "S8R", "S6"}
+                  and int(fields[0]) in members):
+                connectivity.append([int(value) for value in fields[1:]])
+    if not connectivity:
+        raise InpWriteError("No shell elements could be resolved for the selected orientation reference.")
+    def subtract(a, b):
+        return tuple(a[i]-b[i] for i in range(3))
+    def dot(a, b):
+        return sum(x*y for x, y in zip(a, b))
+    def cross(a, b):
+        return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+    def normalized(a):
+        length = math.sqrt(dot(a, a))
+        if length < 1e-14:
+            raise InpWriteError("A degenerate shell element cannot define a material plane.")
+        return tuple(value/length for value in a)
+    try:
+        first = connectivity[0]
+        origin = nodes[first[0]]
+        normal = normalized(cross(subtract(nodes[first[1]], origin), subtract(nodes[first[2]], origin)))
+        points = [nodes[node] for element in connectivity for node in element]
+    except (KeyError, IndexError) as exc:
+        raise InpWriteError("The selected shell mesh has incomplete node/connectivity definitions.") from exc
+    scale = max(math.sqrt(dot(subtract(point, origin), subtract(point, origin))) for point in points)
+    if any(abs(dot(subtract(point, origin), normal)) > max(1e-9, scale*1e-7) for point in points):
+        raise InpWriteError("This orientation search supports planar shell patches. Select a planar part; curved laminates need a local material-direction field.")
+    for element in connectivity:
+        point = nodes[element[0]]
+        other_normal = normalized(cross(subtract(nodes[element[1]], point), subtract(nodes[element[2]], point)))
+        if dot(normal, other_normal) < 0.999999:
+            raise InpWriteError("The selected shell elements have inconsistent normals. Align their normals in PrePoMax before defining a laminate.")
+    projected_x = subtract((1.0, 0.0, 0.0), tuple(normal[0]*n for n in normal))
+    if dot(projected_x, projected_x) < 1e-12:
+        projected_x = subtract((0.0, 1.0, 0.0), tuple(normal[1]*n for n in normal))
+    axis1 = normalized(projected_x)
+    return axis1, normalized(cross(normal, axis1))
+
+
 def splice_layup(base_text, elset_name, material_name, constants,
                   ply_angles, ply_thickness, symmetric=False,
-                  rf_nset_name=None, nlgeom="auto", loads=None):
+                  rf_nset_name=None, nlgeom="auto", loads=None, reference_axes=None):
     """Combine an imported (material-less) .inp with this app's own
     Material + per-ply Orientation + composite Shell section + Puck/reaction
     output requests. Everything else from the import (nodes, elements,
@@ -399,9 +457,9 @@ def splice_layup(base_text, elset_name, material_name, constants,
 
     preamble, _ = remove_section_for_elset(preamble, target_elset)
 
-    # S8 -> S8R is a lossless relabel (same element, same connectivity, see
-    # upgrade_s8_to_s8r's docstring), so it's fixed here rather than
-    # rejected -- do this before the compatibility check below.
+    # S8 -> S8R retains connectivity but changes integration, as required
+    # by CalculiX's layered shell section. The beam benchmark already uses
+    # S8R, so its source and optimized element definitions are identical.
     preamble = upgrade_s8_to_s8r(preamble, target_elset)
 
     found_types = elset_element_types(preamble, target_elset)
@@ -418,7 +476,9 @@ def splice_layup(base_text, elset_name, material_name, constants,
         nlgeom = auto_nlgeom(loads, ply_thickness, ply_angles, symmetric)
 
     mat_text = material_block(material_name, constants)
-    sec_text = section_block(material_name, ply_angles, ply_thickness, symmetric, elset=target_elset)
+    axes = reference_axes or shell_reference_axes(preamble, target_elset)
+    sec_text = section_block(material_name, ply_angles, ply_thickness, symmetric,
+                             elset=target_elset, reference_axes=axes)
     preamble_text = render_cards(preamble)
     combined_preamble = preamble_text + "\n" + mat_text + "\n" + sec_text
 

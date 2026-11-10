@@ -7,15 +7,17 @@ from flask import Flask, render_template, request, jsonify
 from ccx_runner import run_ccx_blocking
 from dat_parser import read_reaction_force, DatParseError
 from inp_writer import material_block, section_block, ELSET_NAME, InpWriteError
-from inp_import import inspect_inp, splice_layup, InpImportError
+from inp_import import inspect_inp, splice_layup, InpImportError, shell_reference_axes, parse_cards
 from puck import PuckStrength, PuckInputError, evaluate_laminate
 from surrogate import (
     make_ccx_evaluator, bayesian_optimise, genetic_search_then_verify, SurrogateError,
 )
+from optimization_routes import orientation_api, DEFAULT_OUTPUT_ROOT
 
 DEFAULT_CCX_EXE = r"D:\PrePoMax v2.5.0\Solver\ccx_dynamic.exe"
 
 app = Flask(__name__)
+app.register_blueprint(orientation_api)
 
 JOBS = {}
 JOBS_LOCK = threading.Lock()
@@ -23,10 +25,10 @@ JOBS_LOCK = threading.Lock()
 
 @app.route("/")
 def index():
-    return render_template("index.html", default_ccx_exe=DEFAULT_CCX_EXE)
+    return render_template("index.html", default_ccx_exe=DEFAULT_CCX_EXE, default_output_folder=DEFAULT_OUTPUT_ROOT)
 
 
-INP_UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+INP_UPLOAD_DIR = os.path.join(DEFAULT_OUTPUT_ROOT, "imports")
 
 
 @app.route("/import_inp", methods=["POST"])
@@ -73,10 +75,15 @@ def section_block_route():
     symmetric = bool(data.get("symmetric"))
     try:
         angles = _parse_angles(data.get("layup"))
+        axes = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0))
+        if data.get("import_inp_path"):
+            with open(data["import_inp_path"], encoding="utf-8-sig") as source:
+                axes = shell_reference_axes(parse_cards(source.read()), data.get("import_elset") or "")
         block = section_block(
             data.get("material"), angles, data.get("thickness"), symmetric,
+            reference_axes=axes,
         )
-    except InpWriteError as e:
+    except (InpWriteError, OSError) as e:
         return jsonify({"ok": False, "error": str(e)})
     return jsonify({"ok": True, "block": block, "num_plies": len(angles) * (2 if symmetric else 1)})
 
